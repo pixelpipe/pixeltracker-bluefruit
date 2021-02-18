@@ -19,6 +19,7 @@ class Pixeltracker():
         self.dataGetTime = Timer()
         self.testTime = Timer()
         self.clrErrTimer = Timer()
+        self.msTimer = Timer()
         self.buttons = Buttons(self.AKeyPressed,self.BKeyPressed)
         self.pixels = Pixels()
         self.speaker = Speaker()
@@ -34,6 +35,26 @@ class Pixeltracker():
         self.sensors = Sensors()
         self.writable = True
 
+    def collectAndSendSensorData(self, inData):
+        data = inData
+        self.accelerometer.read()
+        data += "\t" + self.accelerometer.toString()
+
+        self.sensors.read()
+        data += "\t" + self.sensors.toString()
+
+        self.mic.read()
+        data += "\t" + self.mic.toString()
+
+        #self.dataGetTime.showAndMark("GPS Handler: ")
+        if self.ble.isConnected:
+            self.ble.write(data+"\n")
+
+        self.logger.appendLine(data)
+
+        return data
+
+
     def gpsDataHandler(self, gps, validData):
 
         gpsData = ""
@@ -42,41 +63,43 @@ class Pixeltracker():
         else:
             print("{}".format(gps.DATA_ERROR))
             return
-
-        self.accelerometer.read()
-        gpsData += "\t" + self.accelerometer.toString()
-
-        self.sensors.read()
-        gpsData += "\t" + self.sensors.toString()
-
-        self.mic.read()
-        gpsData += "\t" + self.mic.toString()
-
-        #self.dataGetTime.showAndMark("GPS Handler: ")
-        if self.ble.isConnected:
-            self.ble.write(gpsData)
-
-        self.logger.appendLine(gpsData)
-
-        print(gpsData)
+        
+        data = self.collectAndSendSensorData(gpsData)
+        print(data)
 
     def AKeyPressed(self):
         print("A")
         self.gps.toggle()
+        if self.gps.isEnabled:
+            self.speaker.playFile("on.wav")
+        else:
+            self.speaker.playFile("off.wav")
 
     def BKeyPressed(self):
         print("B")
         self.ble.toggle()
+        if self.ble.isEnabled:
+            self.speaker.playFile("on.wav")
+        else:
+            self.speaker.playFile("off.wav")        
 
     def __display(self, text):
         print(text)
 
+    def sendSensorDataOnly(self):
+        if not self.gps.isEnabled:
+            self.collectAndSendSensorData("")
+
     def __mainLoop(self):
         self.clrErrTimer.stopWatch(5000)
+        self.msTimer.stopWatch(0)
         while True:
             self.buttons.read()
             self.gps.read()
             self.mic.read()
+            if self.msTimer.stopped():
+                self.sendSensorDataOnly()
+                self.msTimer.stopWatch(100)
             if self.clrErrTimer.stopped():
                 self.pixels.clear()
 

@@ -158,7 +158,7 @@ class Accelerometer():
             self._acc_i2c = busio.I2C(board.SCL, board.SDA)
             self._lis3dh = adafruit_lis3dh.LIS3DH_I2C(self._acc_i2c)
         # Set range of accelerometer (can be RANGE_2_G, RANGE_4_G, RANGE_8_G or RANGE_16_G).
-        self._lis3dh.range = adafruit_lis3dh.RANGE_8_G
+        #self._lis3dh.range = adafruit_lis3dh.RANGE_8_G
         self._lis3dh.set_tap(2,60)
 
     def read(self):
@@ -168,7 +168,7 @@ class Accelerometer():
         return self._lis3dh.tapped
 
     def toString(self):
-        return "{:+.4f}\t{:+.4f}\t{:+.4f}".format(self.data[0],self.data[1],self.data[2])
+        return "{:+.4f}\t{:+.4f}\t{:+.4f}".format(self.data[0], self.data[1], self.data[2])
 
 from adafruit_ble import BLERadio
 from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
@@ -229,6 +229,10 @@ class Ble():
     @property
     def isConnected(self):
         return self._ble.connected
+
+    @property
+    def isEnabled(self):
+        return self._enabled
 
 import adafruit_thermistor
 import analogio
@@ -351,6 +355,7 @@ class Gps():
             if self.UBX_ID==0x02:
                 self.PREV_LON = self.LON
                 self.PREV_LAT = self.LAT
+                #print(binascii.hexlify(block))
                 # 11 11 1111 11111111 11112222 22222222 22222222 33333333 33333333 33334444 4444
                 # 00 11 2233 44556677 88990011 22334455 66778899 00112233 44556677 88990011 2233
                 # 01 02 1c00 287c0600 00000000 00000000 00000000 98bdffff ffffffff 009c84df 1783
@@ -372,7 +377,6 @@ class Gps():
                 self.DATA_ERROR = "UBX OK"
                 return True
         #print("ubx 0x{:02x} 0x{:02x} {}".format(self.UBX_CLASS,self.UBX_ID,self.UBX_LEN))
-        #print(binascii.hexlify(block))
         self.DATA_ERROR = "Unknown UBX"
         return False
 
@@ -451,7 +455,7 @@ class Gps():
         return not self._gpsEnable.value
 
     def toString(self):
-        return "{}\t{:.6f}\t{:.6f}\t{:.2f}\t{}".format(self.itow2str(self.ITOW), self.LAT/10000000, self.LON/10000000, self.ALT/1000,"" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
+        return "{}\t{:.6f}\t{:.6f}\t{:.0f}\t{:.0f}\t{:.0f}\t{:.0f}\t{}".format(self.itow2str(self.ITOW), self.LAT/10000000, self.LON/10000000, self.ALT/1000, self.HACC/10000000, self.VACC/10000000, self.BEARING, "" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
 
 class Activity():
     """Handles LED activity from various devices"""
@@ -559,7 +563,7 @@ class Microphone():
             self._activity.colorOf(self.level, [ 1, 0, 0] )
 
     def toString(self):
-        return "{:.2f}\t{:.2f}".format(self.magnitude, self.level)
+        return "{:.2f}\t{:.2f}".format(self.magnitude/100, self.level/100)
 
 class Timer():
     """Timer class"""
