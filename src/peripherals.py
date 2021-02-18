@@ -27,12 +27,15 @@ boardLED = digitalio.DigitalInOut(board.D13)
 boardLED.switch_to_output()
 
 def boardLedOn():
+    """Turns D13 on"""
     boardLED.value = True
 
 def boardLedOff():
+    """Turns D13 off"""
     boardLED.value = True
 
 def boardLedToggle():
+    """Toggles D13"""
     boardLED.value = not boardLED.value
 
 """
@@ -229,6 +232,7 @@ class Ble():
 
 import adafruit_thermistor
 import analogio
+
 class Sensors():
     """Sensors Class"""
     def __init__(self):
@@ -500,6 +504,7 @@ class Activity():
         self.update()
 
 import audiobusio
+
 class Microphone():
     """ Samples data from the microphone and returns the noise
         magnitude and level"""
