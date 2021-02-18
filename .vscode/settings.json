@@ -1,8 +1,0 @@
-{
-    "python.autoComplete.extraPaths": [
-        null,
-        "c:\\Users\\decoder.BART\\.vscode\\extensions\\joedevivo.vscode-circuitpython-0.1.8\\stubs",
-        "c:\\Users\\decoder.BART\\AppData\\Roaming\\Code\\User\\globalStorage\\joedevivo.vscode-circuitpython\\bundle\\20210217\\adafruit-circuitpython-bundle-py-20210217\\lib"
-    ],
-    "circuitpython.board.version": "6.1.0"
-}
