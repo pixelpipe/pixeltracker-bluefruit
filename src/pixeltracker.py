@@ -20,19 +20,20 @@ class Pixeltracker():
         self.testTime = Timer()
         self.clrErrTimer = Timer()
         self.msTimer = Timer()
-        self.buttons = Buttons(self.AKeyPressed,self.BKeyPressed)
+        self.buttons = Buttons(self.AKeyPressed, self.BKeyPressed)
         self.pixels = Pixels()
         self.speaker = Speaker()
         self.gpsActivity = Activity(self.pixels, 0, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
         self.bleActivity = Activity(self.pixels, 1, COLORS["off"], COLORS["blue"], COLORS["cyan"],COLORS["orange"],COLORS["red"])
         self.micActivity = Activity(self.pixels, 9, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
         self.storageActivity = Activity(self.pixels, 4, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
-        self.logger = SimpleLogger(10, 128 * 1024, self.storageActivity) # 128 K x 10 files
+        self.logger = SimpleLogger(4, 256 * 1024, self.storageActivity) # 256 K x 4 files
         self.gps = Gps(self.gpsDataHandler, self.gpsActivity)
         self.ble = Ble(self.bleActivity)
         self.mic = Microphone(self.micActivity)
         self.accelerometer = Accelerometer()
         self.sensors = Sensors()
+        self._logSensorsOn = False
         self.writable = True
 
     def collectAndSendSensorData(self, inData):
@@ -88,7 +89,8 @@ class Pixeltracker():
 
     def sendSensorDataOnly(self):
         if not self.gps.isEnabled:
-            self.collectAndSendSensorData("")
+            if self.ble.isEnabled:
+                self.collectAndSendSensorData("")
 
     def __mainLoop(self):
         self.clrErrTimer.stopWatch(5000)
@@ -99,7 +101,7 @@ class Pixeltracker():
             self.mic.read()
             if self.msTimer.stopped():
                 self.sendSensorDataOnly()
-                self.msTimer.stopWatch(100)
+                self.msTimer.stopWatch(500)
             if self.clrErrTimer.stopped():
                 self.pixels.clear()
 

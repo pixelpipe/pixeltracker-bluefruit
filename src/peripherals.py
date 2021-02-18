@@ -125,12 +125,14 @@ class Buttons():
         else:
             self._buttonAState = False
         if self._buttonB.value:
+
             #print("B On")
             if not self._buttonBState:
                 self._onButtonBPressed()
                 self._buttonBState = True
         else:
             self._buttonBState = False
+
 
     @property
     def buttonA(self):
@@ -139,9 +141,6 @@ class Buttons():
     @property
     def buttonB(self):
         return self._buttonB
-
-    def bothPressed(self):
-        return self._buttonA.value and self._buttonB.value
 
 import busio
 import adafruit_lis3dh
