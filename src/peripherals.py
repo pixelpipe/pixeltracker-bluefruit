@@ -4,21 +4,9 @@ import math
 import binascii
 import time
 import array
+from utils import COLORS, _SEP
 
 #import audiobusio
-
-# Basic Color Table
-COLORS = {
-    "red"   : (255, 0, 0),
-    "green" : (0, 255, 0),
-    "cyan" : (0, 255, 255),
-    "yellow" : (255, 255, 0),
-    "blue" : (0, 0, 255),
-    "white" : (255, 255, 255),
-    "pink" : (255, 0, 100),
-    "orange" : (230, 80, 0),
-    "off" : (0,0,0)
-}
 
 # Board LEDs
 import digitalio
@@ -167,7 +155,11 @@ class Accelerometer():
         return self._lis3dh.tapped
 
     def toString(self):
-        return "{:+.4f}\t{:+.4f}\t{:+.4f}".format(self.data[0], self.data[1], self.data[2])
+        str=""
+        str+="{:+.4f}".format(self.data[0])+_SEP
+        str+="{:+.4f}".format(self.data[1])+_SEP
+        str+="{:+.4f}".format(self.data[2])+_SEP
+        return str
 
 from adafruit_ble import BLERadio
 from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
@@ -252,7 +244,10 @@ class Sensors():
         self.data = [self._thermistor.temperature, self.scale(self._light.value)]
 
     def toString(self):
-        return "{:.2f}\t{:.2f}".format(self.data[0], self.data[1])
+        str=""
+        str+="{:.2f}".format(self.data[0])+_SEP
+        str+="{:.2f}".format(self.data[1])+_SEP
+        return str
 
     @property
     def thermistor(self):
@@ -261,200 +256,6 @@ class Sensors():
     @property
     def light(self):
         return self._light
-
-class Gps():
-    """Handles the GPS data"""
-    _UART_READ_COUNT = 1
-    _GMT_OFFSET = 1
-
-    def __init__(self, onDataHandler, activity,  gmtOffset = 1, uartReadBufferSize = 1, baudRate = 9600):
-        self._activity = activity
-        self._onDataHandler = onDataHandler
-        self._GMT_OFFSET = gmtOffset
-        self._UART_READ_COUNT = uartReadBufferSize
-        self._baudRate = baudRate
-        # Configure the PPS Signal Pin
-        # D6 = A1 = PPS (INPUT)
-        self._pps = digitalio.DigitalInOut(board.D6)
-        self._pps.direction = digitalio.Direction.INPUT
-        # Configure the GPS Enable PIN
-        # D9 = A2 = EN  (OUTPUT)
-        self._gpsEnable = digitalio.DigitalInOut(board.D9)
-        self._gpsEnable.direction = digitalio.Direction.OUTPUT
-        # Local UART
-        self._uart = busio.UART(board.TX, board.RX, baudrate=self._baudRate)
-        self._testTime = Timer()
-        self.validData = False
-
-        self._CRT_UART_BYTE = 0x00
-        self._PREV_UART_BYTE = 0x00
-        self._CURRENT_UART_BLOCK = bytearray()
-        self._GPS_CHAR_COUNTER = 0
-
-        self.UBX_CLASS = 0
-        self.UBX_ID =0
-        self.UBX_LEN = 0
-        self.ITOW = 0
-        self.LON = 0
-        self.LAT = 0
-        self.ALT = 0
-        self.HMSL = 0
-        self.HACC = 0
-        self.VACC = 0
-        self.CHKSUM = 0
-        self.PREV_LON = 0
-        self.PREV_LAT = 0
-        self.BEARING = 0
-        self.DATA_ERROR = ""
-
-        self.DAY = 0
-        self.HOUR = 0
-        self.MIN = 0
-        self.SEC = 0
-        self.MS = 0
-        self.GPS_TIME = ""
-
-    def enable(self):
-        self._gpsEnable.value = True
-        if self._activity:
-            self._activity.enable()
-        print("GPS Enabled!")
-
-    def disable(self):
-        self._gpsEnable.value = False
-        print("GPS Disabled!")
-        if self._activity:
-            self._activity.off()
-
-    def bearing(self, lon1, lat1, lon2, lat2):
-        """Calculates bearing from previous location"""
-        dLon = lon2 - lon1
-        y = math.sin(dLon) * math.cos(lat2)
-        x = math.cos(lat1)*math.sin(lat2) - math.sin(lat1)*math.cos(lat2)*math.cos(dLon)
-        brng = math.degrees(math.atan2(y, x))
-        #brng = math.atan2(y, x).toDeg();
-        #if brng < 0: brng+= 360
-        return int(brng)
-
-    def parse(self,block):
-        """Processor for the UBX blocks
-        https://www.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf"""
-
-        if len(block)<=3:
-            self.DATA_ERROR = "Not UBX" # No UBX
-            return False
-
-        # Extractinng UBX Class, ID and Len
-        self.UBX_CLASS = block[0]
-        self.UBX_ID = block[1]
-        self.UBX_LEN = block[2] + block[3] * 256
-
-        # 0x01 0x02 - Block
-        if self.UBX_CLASS==0x01:
-            if self.UBX_ID==0x02:
-                self.PREV_LON = self.LON
-                self.PREV_LAT = self.LAT
-                #print(binascii.hexlify(block))
-                # 11 11 1111 11111111 11112222 22222222 22222222 33333333 33333333 33334444 4444
-                # 00 11 2233 44556677 88990011 22334455 66778899 00112233 44556677 88990011 2233
-                # 01 02 1c00 287c0600 00000000 00000000 00000000 98bdffff ffffffff 009c84df 1783
-                # cl id len  ITOW     LON(deg) LAT(deg) ALT(mm)  HMSL(mm) HACC(mm) VACC(mm) cksm
-                size=struct.calcsize('<LllllLLH')
-                if not ((size + 4) == len(block)):
-                    self.DATA_ERROR = "Broken UBX" # incomplete UBX
-                    return False
-                nav_posllh=struct.unpack_from('<LllllLLH',block,4)
-                self.ITOW = nav_posllh[0]
-                self.LON = nav_posllh[1]
-                self.LAT = nav_posllh[2]
-                self.ALT = nav_posllh[3]
-                self.HMSL = nav_posllh[4]
-                self.HACC = nav_posllh[5]
-                self.VACC = nav_posllh[6]
-                self.CHKSUM = nav_posllh[7]
-                self.BEARING = self.bearing(self.PREV_LON,self.PREV_LAT,self.LON,self.LAT)
-                self.DATA_ERROR = "UBX OK"
-                return True
-        #print("ubx 0x{:02x} 0x{:02x} {}".format(self.UBX_CLASS,self.UBX_ID,self.UBX_LEN))
-        self.DATA_ERROR = "Unknown UBX"
-        return False
-
-    def toggle(self):
-        if self.isEnabled:
-            self.disable()
-        else:
-            self.enable()
-
-    def read(self):
-        # read a chunk from UART
-        # do not read if the GPS is disabled
-        if not self._gpsEnable.value:
-            return
-
-        # self._testTime.mark()
-        data = self._uart.read(self._UART_READ_COUNT)
-        #self._testTime.show("gps: ")
-        self._GPS_CHAR_COUNTER = self._GPS_CHAR_COUNTER + self._UART_READ_COUNT
-        # Parse the current chunk
-        if data is not None:
-            for i in range(self._UART_READ_COUNT):
-                # check zero buffer
-                if len(data)<=0:
-                    return
-                # get the byte
-                self._CRT_UART_BYTE=data[i]
-                if self._PREV_UART_BYTE==0xb5 and self._CRT_UART_BYTE==0x62:
-                    # Bingo! Process previous block
-                    self.validData = self.parse(self._CURRENT_UART_BLOCK[1:-1])
-                    if self._activity:
-                        if self.validData:
-                            self._activity.ok()
-                        else:
-                            self._activity.error()
-                    self._activity.off()
-                    if self._onDataHandler:
-                        self._onDataHandler(self, self.validData)
-                    # Reset the block for the next fill
-                    self._CURRENT_UART_BLOCK=bytearray()
-                # Append the byte
-                self._CURRENT_UART_BLOCK.append(self._CRT_UART_BYTE)
-                # Current will be the previous
-                self._PREV_UART_BYTE=self._CRT_UART_BYTE
-
-    def itow2str(self, iTOW):
-        """Converts iTOW to readable time"""
-
-        dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-        MIN, MS = divmod(iTOW, 60000)
-        HOUR, MIN = divmod(MIN, 60)
-        DAY, HOUR = divmod(HOUR, 24)
-        if DAY>=0 and DAY<=6:
-            daystr = dow[DAY]
-        else:
-            daystr = str(DAY)
-        #GPS_TIME = '{} {:02d}:{:02d}:{:04.1f}'.format(daystr, GMT_OFFSET + HOUR, MIN, MS/1000)
-        #GPS_TIME = '{} {:02d}:{:02d}:{:02d}'.format(daystr, GMT_OFFSET + HOUR, MIN, int(MS/1000))
-        GPS_TIME = '{}\t{:02d}:{:02d}:{:02d}'.format(daystr, self._GMT_OFFSET + HOUR, MIN, int(MS/1000))
-        return GPS_TIME
-
-    @property
-    def pps(self):
-        return self._pps
-
-    @property
-    def gpsEn(self):
-        return self._gpsEnable
-
-    @property
-    def isEnabled(self):
-        return self._gpsEnable.value
-
-    @property
-    def isDisabled(self):
-        return not self._gpsEnable.value
-
-    def toString(self):
-        return "{}\t{:.6f}\t{:.6f}\t{:.0f}\t{:.0f}\t{:.0f}\t{:.0f}\t{}".format(self.itow2str(self.ITOW), self.LAT/10000000, self.LON/10000000, self.ALT/1000, self.HACC/10000000, self.VACC/10000000, self.BEARING, "" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
 
 class Activity():
     """Handles LED activity from various devices"""
@@ -562,86 +363,65 @@ class Microphone():
             self._activity.colorOf(self.level, [ 1, 0, 0] )
 
     def toString(self):
-        return "{:.2f}\t{:.2f}".format(self.magnitude/100, self.level/100)
-
-class Timer():
-    """Timer class"""
-    def __init__(self):
-        self._NOW = 0
-        self._PREV = self._NOW
-        self.mark()
-        self.DELTA = 0
-        self._stopped = False
-
-    def mark(self):
-        self._NOW = time.monotonic_ns()
-        self._PREV = self._NOW
-
-    def stopWatch(self, msTime):
-        self._stopWatch = msTime
-        self._stopped = False
-        self.mark()
-
-    def stopped(self):
-        if self._stopped:
-            return True
-        self._NOW = time.monotonic_ns()
-        self.calc()
-        if self._DELTA > (self._stopWatch * 1000000):
-            self.stooped = True
-            return True
-        return False
-
-    def calc(self):
-        self._DELTA = self._NOW - self._PREV
-
-    def showAndMark(self, msg = ""):
-        self._NOW = time.monotonic_ns()
-        self.calc()
-        self.mark()
-        self.print(msg)
-
-    def show(self, msg = ""):
-        self._NOW = time.monotonic_ns()
-        self.calc()
-        self.print(msg)
-
-    def print(self, msg = ""):
-        print("{}{:.2f} ms".format(" " + msg if msg != "" else "", self._DELTA/1000/1000))
+        str = ""
+        str += "{:.2f}".format(self.magnitude/100)+_SEP
+        str += "{:.2f}".format(self.level/100)+_SEP
+        return str
 
 import storage
 class SimpleLogger:
     """Basic logging on the local storage"""
-    def __init__(self, logs, logSize, activity):
-        self._logFile = "log.txt"
+    def __init__(self, header, logs, logSize, activity):
+        self._logFile = "0.txt"
         self._logs = logs
         self._crtLog = 0
         self._logSize = logSize
         self._activity = activity
         self._writable = True
         self._loggedBytes = 0
+        self.header = header
 
+    def checkNextFile(self):
+        # check if log file size exceeds the allowed max size
+        if self._loggedBytes > self._logSize:
+            # increment log number
+            self._crtLog = self._crtLog + 1
+            # circular logs
+            if self._crtLog >= self._logs:
+                self._crtLog = 0
+            # build the filename
+            self._logFile = "log_{}.txt".format(self._crtLog)
+            # initialize the new file and write the header befor logging
+            if self._writable:
+                with open(self._logFile, 'w') as fp:
+                    fp.write(self.header+"\n")
+                    fp.flush()
+                    self._loggedBytes = len(self.header) + 1
+            else:
+                print("SimWrite {} [{}]".format(self._logFile, self._loggedBytes))
+                print(self.header)
+                self._loggedBytes = len(self.header) + 1
+
+    def writeData(self, data):
+        # write data
+        if self._writable:
+            with open(self._logFile, 'a') as fp:
+                fp.write(data)
+                fp.flush()
+                self._loggedBytes = self._loggedBytes + len(data)
+        else:
+            print("SimAppend {} [{}]".format(self._logFile, self._loggedBytes))            
+            print(data)
+            self._loggedBytes = self._loggedBytes + len(data)
+    
     def append(self, data):
         """Appends data to a file"""
         try:
-            if self._writable:
-                if self._loggedBytes > self._logSize:
-                    self._crtLog = self._crtLog + 1
-                    if self._crtLog >= self._logs:
-                        self._crtLog = 0
-                    self._logFile = "log_{}.txt".format(self._crtLog)
-                    with open(self._logFile, 'w') as fp:
-                        fp.write(data)
-                        fp.flush()
-                    self._loggedBytes = 0
-                with open(self._logFile, 'a') as fp:
-                    fp.write(data)
-                    fp.flush()
-                    self._loggedBytes = self._loggedBytes + len(data)
-            else:
-                self._activity.error()
-                self._activity.off()
+            # logs only if writable, otherwise sends to stdio
+            self.checkNextFile()
+            self.writeData(data)
         except OSError as e:
+            # cant write -> not writable
             if e.args[0] == 28:  # If the file system is full...
                 self._activity.warning()
             else:

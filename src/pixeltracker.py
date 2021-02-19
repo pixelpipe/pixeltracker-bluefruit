@@ -8,8 +8,10 @@ __copyright__ = "Copyright ©2021 by pixelchain"
 __description__ = "sensor tracker"
 
 from time import sleep
-from peripherals import Pixels, Buttons, Speaker, Accelerometer, Ble, Gps, Sensors, Activity, \
-    Microphone, Timer, SimpleLogger, COLORS
+from peripherals import Pixels, Buttons, Speaker, Accelerometer, Ble, Sensors, Activity, \
+    Microphone, SimpleLogger
+from gps import Gps
+from utils import Timer, COLORS, _SEP
 
 class Pixeltracker():
     """
@@ -27,7 +29,10 @@ class Pixeltracker():
         self.bleActivity = Activity(self.pixels, 1, COLORS["off"], COLORS["blue"], COLORS["cyan"],COLORS["orange"],COLORS["red"])
         self.micActivity = Activity(self.pixels, 9, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
         self.storageActivity = Activity(self.pixels, 4, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
-        self.logger = SimpleLogger(4, 256 * 1024, self.storageActivity) # 256 K x 4 files
+        # (self.itow2str(self.ITOW), self.LAT/10000000, self.LON/10000000, self.ALT/1000, self.HACC/1000000, self.VACC/1000000, self.BEARING, "" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
+        self.noGpsHeader = f"ACCX{_SEP}ACCY{_SEP}ACCZ{_SEP}TEMP{_SEP}LIGHT{_SEP}MAG{_SEP}LVL"
+        self.gpsHeader = f"DAY{_SEP}TIME{_SEP}LAT{_SEP}LON{_SEP}ALT{_SEP}HACC{_SEP}VACC{_SEP}BEAR{_SEP}SIG{_SEP}"+ self.noGpsHeader
+        self.logger = SimpleLogger(self.gpsHeader, 4, 1024 * 256, self.storageActivity) # 256 K x 4 files        
         self.gps = Gps(self.gpsDataHandler, self.gpsActivity)
         self.ble = Ble(self.bleActivity)
         self.mic = Microphone(self.micActivity)
@@ -39,13 +44,13 @@ class Pixeltracker():
     def collectAndSendSensorData(self, inData):
         data = inData
         self.accelerometer.read()
-        data += "\t" + self.accelerometer.toString()
+        data += _SEP + self.accelerometer.toString()
 
         self.sensors.read()
-        data += "\t" + self.sensors.toString()
+        data += _SEP + self.sensors.toString()
 
         self.mic.read()
-        data += "\t" + self.mic.toString()
+        data += _SEP + self.mic.toString()
 
         #self.dataGetTime.showAndMark("GPS Handler: ")
         if self.ble.isConnected:
@@ -69,9 +74,13 @@ class Pixeltracker():
         print(data)
 
     def AKeyPressed(self):
+        #self.gps.config()
+        #return
         print("A")
         self.gps.toggle()
         if self.gps.isEnabled:
+            self.logger.header = self.gpsHeader
+            print(self.logger.header)
             self.speaker.playFile("on.wav")
         else:
             self.speaker.playFile("off.wav")
@@ -95,6 +104,7 @@ class Pixeltracker():
     def __mainLoop(self):
         self.clrErrTimer.stopWatch(5000)
         self.msTimer.stopWatch(0)
+        print(self.noGpsHeader)
         while True:
             self.buttons.read()
             self.gps.read()
@@ -110,5 +120,6 @@ class Pixeltracker():
         self.__display("{} v{} {}".format(__name__,__version__,__description__))
         self.__display("{}".format(__copyright__))
         print("Running...")
-        self.speaker.playFile("on.wav")
+        self.gps.enable()
+        self.speaker.playFile("on.wav")        
         self.__mainLoop()

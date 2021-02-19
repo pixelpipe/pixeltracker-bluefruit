@@ -9,4 +9,4 @@ import peripherals
 
 if __name__ == '__main__':
     pixeltracker = Pixeltracker()
-    pixeltracker.run()    
+    pixeltracker.run()
