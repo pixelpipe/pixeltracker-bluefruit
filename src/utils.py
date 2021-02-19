@@ -15,6 +15,16 @@ COLORS = {
     "off" : (0,0,0)
 }
 
+def timed_function(f, *args, **kwargs):
+    myname = str(f).split(' ')[1]
+    def new_func(*args, **kwargs):
+        t = time.monotonic_ns()
+        result = f(*args, **kwargs)
+        delta = time.monotonic_ns() - t
+        print('Function {} Time = {:6.3f}ms'.format(myname, delta/1000000))
+        return result
+    return new_func
+
 class Timer():
     """Timer class"""
     def __init__(self):
@@ -23,6 +33,7 @@ class Timer():
         self.mark()
         self.DELTA = 0
         self._stopped = False
+        self._stopWatch = 0
 
     def mark(self):
         self._NOW = time.monotonic_ns()

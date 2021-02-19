@@ -8,15 +8,13 @@ import math
 from utils import Timer, COLORS, _SEP
 
 class Gps():
-    """Handles the GPS data"""
-    _UART_READ_COUNT = 1
-    _GMT_OFFSET = 1
+    """Handles the GPS data"""        
 
     def __init__(self, onDataHandler, activity,  gmtOffset = 1, uartReadBufferSize = 1, baudRate = 9600):
         self._activity = activity
         self._onDataHandler = onDataHandler
         self._GMT_OFFSET = gmtOffset
-        self._UART_READ_COUNT = 1 #uartReadBufferSize
+        self._UART_READ_COUNT = 2 #uartReadBufferSize
         self._baudRate = baudRate
         # Configure the PPS Signal Pin
         # D6 = A1 = PPS (INPUT)
@@ -191,10 +189,10 @@ class Gps():
         if self.UBX_CLASS==0x01:
             if self.UBX_ID==0x07:
                 size=struct.calcsize('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL')
-                print(size+4)
-                print(len(block))
+                #print(size+4)
+                #print(len(block))
                 if not ((size + 4) == len(block)):
-                    self.DATA_ERROR = "Broken UBX" # incomplete UBX
+                    self.DATA_ERROR = "Broken UBX[{}/{}]".format(size + 4, len(block)) # incomplete UBX
                     return False
                 self.nav_pvt = struct.unpack_from('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL',block,4)
                 self.ITOW = self.nav_pvt[0]
@@ -272,7 +270,7 @@ class Gps():
             self.disable()
         else:
             self.enable()
-    
+    """
     def read(self):        
         while True:
             data = self._uart.read(1)
@@ -287,8 +285,10 @@ class Gps():
             if data[0] == 0x62:
                 break
         print("Bingo!")
+    """
 
-    def read1(self):
+    #@timed_function
+    def read(self):
         # read a chunk from UART
         # do not read if the GPS is disabled
         if not self._gpsEnable.value:
@@ -315,25 +315,32 @@ class Gps():
                 # if separator
                 if self._PREV_UART_BYTE==0xb5 and self._CRT_UART_BYTE==0x62:
                     # Bingo! Process previous block
-                    print(binascii.hexlify(self._CURRENT_UART_BLOCK[1:-1]))
-                    """
                     self.validData = self.parse(self._CURRENT_UART_BLOCK[1:-1])
                     if self._activity:
                         if self.validData:
-                            self._activity.ok()
+                            if (self.DATA_ERROR == "RTD"):
+                                #self.NUMSV = 10
+                                if self.NUMSV>0:
+                                    #self._activity.setColor((0, 10*self.NUMSV,0))
+                                    self._activity.setColor(COLORS["green"])
+                                else:
+                                    self._activity.setColor(COLORS["cyan"])
+                            else:
+                                if (self.DATA_ERROR == ""):
+                                    self._activity.warning()
+                                else:
+                                    self._activity.enable()
                         else:
                             self._activity.error()
                     self._activity.off()
                     if self._onDataHandler:
                         self._onDataHandler(self, self.validData)
-                    """
                     # Reset the block for the next fill
                     self._CURRENT_UART_BLOCK=bytearray()
-                else:
-                    # Append the byte
-                    self._CURRENT_UART_BLOCK.append(self._CRT_UART_BYTE)
-                    # Current will be the previous
-                    self._PREV_UART_BYTE=self._CRT_UART_BYTE
+                # Append the byte
+                self._CURRENT_UART_BLOCK.append(self._CRT_UART_BYTE)
+                # Current will be the previous
+                self._PREV_UART_BYTE=self._CRT_UART_BYTE
 
     def itow2str(self, iTOW):
         """Converts iTOW to readable time"""
@@ -373,11 +380,9 @@ class Gps():
         str += "{:.6f}".format(self.LON/10000000)+_SEP
         str += "{}".format(self.ALT)+_SEP
         str += "{}".format(self.NUMSV)+_SEP
-        str += "{},{},{},".format(self.YEAR, self.MONTH, self.itow2str(self.ITOW))+_SEP
+        str += "{},{},{}".format(self.YEAR, self.MONTH, self.itow2str(self.ITOW))+_SEP
         str += "{}".format(self.HACC)+_SEP
         str += "{}".format(self.VACC)+_SEP
-        str += "{}".format(self.HEADMOT)+_SEP
-        str += "{}".format(self.SPEED)+_SEP
         str += "{}".format(self.SPEED)+_SEP
         str += "{}".format(self.HEADMOT)+_SEP
         str += "{}".format(self.HEADACC)+_SEP
@@ -409,4 +414,4 @@ class Gps():
         self.HEADVEH = self.nav_pvt[28]
         self.MAGDEC = self.nav_pvt[29]
         self.MAGACC = self.nav_pvt[30]
-        """        
+        """

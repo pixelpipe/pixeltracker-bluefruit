@@ -158,7 +158,7 @@ class Accelerometer():
         str=""
         str+="{:+.4f}".format(self.data[0])+_SEP
         str+="{:+.4f}".format(self.data[1])+_SEP
-        str+="{:+.4f}".format(self.data[2])+_SEP
+        str+="{:+.4f}".format(self.data[2])
         return str
 
 from adafruit_ble import BLERadio
@@ -246,7 +246,7 @@ class Sensors():
     def toString(self):
         str=""
         str+="{:.2f}".format(self.data[0])+_SEP
-        str+="{:.2f}".format(self.data[1])+_SEP
+        str+="{:.2f}".format(self.data[1])
         return str
 
     @property
@@ -269,6 +269,12 @@ class Activity():
         self._sleep = sleep
         self._offColor = offColor
         self._stateColor = self._offColor
+
+    def setPixel(self,id,color):
+        self._pixels.set(id, color)
+
+    def setColor(self,color):
+        self._pixels.set(self._pixel, color)
 
     def update(self):
         if self._sleep != 0:
@@ -365,7 +371,7 @@ class Microphone():
     def toString(self):
         str = ""
         str += "{:.2f}".format(self.magnitude/100)+_SEP
-        str += "{:.2f}".format(self.level/100)+_SEP
+        str += "{:.2f}".format(self.level/100)
         return str
 
 import storage
@@ -398,8 +404,8 @@ class SimpleLogger:
                     fp.flush()
                     self._loggedBytes = len(self.header) + 1
             else:
-                print("SimWrite {} [{}]".format(self._logFile, self._loggedBytes))
-                print(self.header)
+                #print("SimWrite {} [{}]".format(self._logFile, self._loggedBytes))
+                #print(self.header)
                 self._loggedBytes = len(self.header) + 1
 
     def writeData(self, data):
@@ -410,8 +416,8 @@ class SimpleLogger:
                 fp.flush()
                 self._loggedBytes = self._loggedBytes + len(data)
         else:
-            print("SimAppend {} [{}]".format(self._logFile, self._loggedBytes))            
-            print(data)
+            #print("SimAppend {} [{}]".format(self._logFile, self._loggedBytes))            
+            #print(data)
             self._loggedBytes = self._loggedBytes + len(data)
     
     def append(self, data):

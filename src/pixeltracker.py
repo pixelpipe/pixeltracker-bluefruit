@@ -7,6 +7,7 @@ __version__ = '0.0.3'
 __copyright__ = "Copyright ©2021 by pixelchain"
 __description__ = "sensor tracker"
 
+import gc
 from time import sleep
 from peripherals import Pixels, Buttons, Speaker, Accelerometer, Ble, Sensors, Activity, \
     Microphone, SimpleLogger
@@ -19,6 +20,7 @@ class Pixeltracker():
     """
     def __init__(self):
         self.dataGetTime = Timer()
+        self.memTimer = Timer()
         self.testTime = Timer()
         self.clrErrTimer = Timer()
         self.msTimer = Timer()
@@ -31,7 +33,7 @@ class Pixeltracker():
         self.storageActivity = Activity(self.pixels, 4, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
         # (self.itow2str(self.ITOW), self.LAT/10000000, self.LON/10000000, self.ALT/1000, self.HACC/1000000, self.VACC/1000000, self.BEARING, "" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
         self.noGpsHeader = f"ACCX{_SEP}ACCY{_SEP}ACCZ{_SEP}TEMP{_SEP}LIGHT{_SEP}MAG{_SEP}LVL"
-        self.gpsHeader = f"DAY{_SEP}TIME{_SEP}LAT{_SEP}LON{_SEP}ALT{_SEP}HACC{_SEP}VACC{_SEP}BEAR{_SEP}SIG{_SEP}"+ self.noGpsHeader
+        self.gpsHeader = f"LAT{_SEP}LON{_SEP}ALT{_SEP}SAT{_SEP}YEAR{_SEP}MONTH{_SEP}TIME{_SEP}HACC{_SEP}VACC{_SEP}SPEED{_SEP}HEAD{_SEP}HDACC{_SEP}HDADV{_SEP}SIGNAL{_SEP}"+ self.noGpsHeader
         self.logger = SimpleLogger(self.gpsHeader, 4, 1024 * 256, self.storageActivity) # 256 K x 4 files        
         self.gps = Gps(self.gpsDataHandler, self.gpsActivity)
         self.ble = Ble(self.bleActivity)
@@ -102,24 +104,41 @@ class Pixeltracker():
                 self.collectAndSendSensorData("")
 
     def __mainLoop(self):
-        self.clrErrTimer.stopWatch(5000)
+        self.clrErrTimer.stopWatch(10*1000)
         self.msTimer.stopWatch(0)
-        print(self.noGpsHeader)
+        #print(self.noGpsHeader)
+
         while True:
+
             self.buttons.read()
+
             self.gps.read()
-            self.mic.read()
-            if self.msTimer.stopped():
-                self.sendSensorDataOnly()
-                self.msTimer.stopWatch(500)
+
+            if not self.gps.isEnabled:
+                self.mic.read()
+                if self.msTimer.stopped():
+                    self.sendSensorDataOnly()
+                    self.msTimer.stopWatch(500)
+
             if self.clrErrTimer.stopped():
                 self.pixels.clear()
+
+            if self.memTimer.stopped():
+                #print('Before gc free: {} allocated: {}'.format(gc.mem_free()/1024, gc.mem_alloc()/1024))
+                gc.collect()
+                #print('After gc free: {} allocated: {}'.format(gc.mem_free()/1024, gc.mem_alloc()/1024))
+                #gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
+                self.memTimer.stopWatch(60 * 1000)#15 * 60 * 1000) # 15min
+
 
     def run(self):
         """Runs the application"""
         self.__display("{} v{} {}".format(__name__,__version__,__description__))
         self.__display("{}".format(__copyright__))
+
         print("Running...")
-        self.gps.enable()
-        self.speaker.playFile("on.wav")        
+
+        #self.gps.enable()
+        self.speaker.playFile("on.wav")
+
         self.__mainLoop()
