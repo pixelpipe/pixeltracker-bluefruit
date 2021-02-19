@@ -4,7 +4,9 @@ import math
 import binascii
 import time
 import array
-from utils import COLORS, _SEP
+from utils import COLORS
+from var import SEP, LOG_USING_UBX_FORMAT
+import var
 
 #import audiobusio
 
@@ -156,10 +158,13 @@ class Accelerometer():
 
     def toString(self):
         str=""
-        str+="{:+.4f}".format(self.data[0])+_SEP
-        str+="{:+.4f}".format(self.data[1])+_SEP
+        str+="{:+.4f}".format(self.data[0])+SEP
+        str+="{:+.4f}".format(self.data[1])+SEP
         str+="{:+.4f}".format(self.data[2])
         return str
+
+    def ubx(self):
+        return struct.pack("<BBHfff",ord('S'), ord('X'), 12,self.data[0], self.data[1], self.data[2])
 
 from adafruit_ble import BLERadio
 from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
@@ -245,9 +250,12 @@ class Sensors():
 
     def toString(self):
         str=""
-        str+="{:.2f}".format(self.data[0])+_SEP
+        str+="{:.2f}".format(self.data[0])+SEP
         str+="{:.2f}".format(self.data[1])
         return str
+
+    def ubx(self):                
+        return struct.pack("<BBHff",ord('S'), ord('S'), 4, self.data[0], self.data[1])
 
     @property
     def thermistor(self):
@@ -370,9 +378,12 @@ class Microphone():
 
     def toString(self):
         str = ""
-        str += "{:.2f}".format(self.magnitude/100)+_SEP
+        str += "{:.2f}".format(self.magnitude/100)+SEP
         str += "{:.2f}".format(self.level/100)
         return str
+
+    def ubx(self):
+        return struct.pack("<BBHff",ord('S'), ord('M'), 8,self.magnitude/100, self.level/100)
 
 import storage
 class SimpleLogger:

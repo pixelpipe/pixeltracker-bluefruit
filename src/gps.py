@@ -1,3 +1,4 @@
+from var import SEP, LOG_USING_UBX_FORMAT
 import digitalio
 import busio
 import time
@@ -5,7 +6,7 @@ import struct
 import board
 import binascii
 import math
-from utils import Timer, COLORS, _SEP
+from utils import Timer, COLORS
 
 class Gps():
     """Handles the GPS data"""        
@@ -37,6 +38,8 @@ class Gps():
         self.UBX_CLASS = 0
         self.UBX_ID =0
         self.UBX_LEN = 0
+        self.DATA_ERROR = ""
+        self.UBX_OUT = b""
 
         self.nav_pvt = ()
         """
@@ -172,7 +175,19 @@ class Gps():
         #if brng < 0: brng+= 360
         return int(brng)
 
-    def parse(self,block):
+    def parseToUbx(self, block):
+        if len(block)<=3:
+            self.DATA_ERROR = "Not UBX" # No UBX
+            return False
+
+        # Extractinng UBX Class, ID and Len
+        self.UBX_CLASS = block[0]
+        self.UBX_ID = block[1]
+        self.UBX_LEN = block[2] + block[3] * 256
+        self.UBX_OUT = block
+        return True        
+
+    def parseToString(self,block):
         """Processor for the UBX blocks
         https://www.u-blox.com/sites/default/files/products/documents/u-blox8-M8_ReceiverDescrProtSpec_UBX-13003221.pdf"""
 
@@ -315,7 +330,10 @@ class Gps():
                 # if separator
                 if self._PREV_UART_BYTE==0xb5 and self._CRT_UART_BYTE==0x62:
                     # Bingo! Process previous block
-                    self.validData = self.parse(self._CURRENT_UART_BLOCK[1:-1])
+                    if LOG_USING_UBX_FORMAT:
+                        self.validData = self.parseToUbx(self._CURRENT_UART_BLOCK[1:-1])
+                    else:
+                        self.validData = self.parseToString(self._CURRENT_UART_BLOCK[1:-1])
                     if self._activity:
                         if self.validData:
                             if (self.DATA_ERROR == "RTD"):
@@ -355,7 +373,7 @@ class Gps():
             daystr = str(DAY)
         #GPS_TIME = '{} {:02d}:{:02d}:{:04.1f}'.format(daystr, GMT_OFFSET + HOUR, MIN, MS/1000)
         #GPS_TIME = '{} {:02d}:{:02d}:{:02d}'.format(daystr, GMT_OFFSET + HOUR, MIN, int(MS/1000))
-        GPS_TIME = '{}{}{:02d}:{:02d}:{:02d}'.format(daystr, _SEP, self._GMT_OFFSET + HOUR, MIN, int(MS/1000))
+        GPS_TIME = '{}{}{:02d}:{:02d}:{:02d}'.format(daystr, SEP, self._GMT_OFFSET + HOUR, MIN, int(MS/1000))
         return GPS_TIME
 
     @property
@@ -376,42 +394,19 @@ class Gps():
 
     def toString(self):
         str = ""
-        str += "{:.6f}".format(self.LAT/10000000)+_SEP
-        str += "{:.6f}".format(self.LON/10000000)+_SEP
-        str += "{}".format(self.ALT)+_SEP
-        str += "{}".format(self.NUMSV)+_SEP
-        str += "{},{},{}".format(self.YEAR, self.MONTH, self.itow2str(self.ITOW))+_SEP
-        str += "{}".format(self.HACC)+_SEP
-        str += "{}".format(self.VACC)+_SEP
-        str += "{}".format(self.SPEED)+_SEP
-        str += "{}".format(self.HEADMOT)+_SEP
-        str += "{}".format(self.HEADACC)+_SEP
-        str += "{}".format(self.HEADVEH)+_SEP        
+        str += "{:.6f}".format(self.LAT/10000000)+SEP
+        str += "{:.6f}".format(self.LON/10000000)+SEP
+        str += "{}".format(self.ALT)+SEP
+        str += "{}".format(self.NUMSV)+SEP
+        str += "{},{},{}".format(self.YEAR, self.MONTH, self.itow2str(self.ITOW))+SEP
+        str += "{}".format(self.HACC)+SEP
+        str += "{}".format(self.VACC)+SEP
+        str += "{}".format(self.SPEED)+SEP
+        str += "{}".format(self.HEADMOT)+SEP
+        str += "{}".format(self.HEADACC)+SEP
+        str += "{}".format(self.HEADVEH)+SEP        
         str += "{}".format("" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
         return str
-        """
-        self.TACC = self.nav_pvt[7]
-        self.NANO = self.nav_pvt[8]
-        self.FIXTYPE = self.nav_pvt[9]
-        self.FLAGS = self.nav_pvt[10]
-        self.FLAGS2 = self.nav_pvt[11]
-        self.NUMSV = self.nav_pvt[12]
-        self.LON = self.nav_pvt[13]
-        self.LAT = self.nav_pvt[14]
-        self.ALT = self.nav_pvt[15]
-        self.HACC = self.nav_pvt[16]
-        self.VACC = self.nav_pvt[17]
-        self.VELN = self.nav_pvt[18]
-        self.VELE = self.nav_pvt[19]
-        self.VELD = self.nav_pvt[20]
-        self.SPEED = self.nav_pvt[21]
-        self.HEADMOT = self.nav_pvt[22]
-        self.SACC = self.nav_pvt[23]
-        self.HEADACC = self.nav_pvt[24]
-        self.PDOP = self.nav_pvt[25]
-        self.FLAGS3 = self.nav_pvt[26]
-        self.RSVD1 = self.nav_pvt[27]
-        self.HEADVEH = self.nav_pvt[28]
-        self.MAGDEC = self.nav_pvt[29]
-        self.MAGACC = self.nav_pvt[30]
-        """
+
+    def ubx(self):
+        return self.UBX_OUT

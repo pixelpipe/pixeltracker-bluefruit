@@ -1,7 +1,5 @@
 import time
 
-_SEP = ","
-
 # Basic Color Table
 COLORS = {
     "red"   : (255, 0, 0),
@@ -70,3 +68,5 @@ class Timer():
 
     def print(self, msg = ""):
         print("{}{:.2f} ms".format(" " + msg if msg != "" else "", self._DELTA/1000/1000))
+
+    

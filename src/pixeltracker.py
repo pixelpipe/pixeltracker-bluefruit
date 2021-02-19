@@ -9,10 +9,11 @@ __description__ = "sensor tracker"
 
 import gc
 from time import sleep
+from var import SEP, LOG_USING_UBX_FORMAT, UBXSEP
 from peripherals import Pixels, Buttons, Speaker, Accelerometer, Ble, Sensors, Activity, \
     Microphone, SimpleLogger
 from gps import Gps
-from utils import Timer, COLORS, _SEP
+from utils import Timer, COLORS
 
 class Pixeltracker():
     """
@@ -32,8 +33,8 @@ class Pixeltracker():
         self.micActivity = Activity(self.pixels, 9, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
         self.storageActivity = Activity(self.pixels, 4, COLORS["off"], COLORS["blue"], COLORS["green"],COLORS["orange"],COLORS["red"])
         # (self.itow2str(self.ITOW), self.LAT/10000000, self.LON/10000000, self.ALT/1000, self.HACC/1000000, self.VACC/1000000, self.BEARING, "" if self.DATA_ERROR == "" else "["+self.DATA_ERROR+"]")
-        self.noGpsHeader = f"ACCX{_SEP}ACCY{_SEP}ACCZ{_SEP}TEMP{_SEP}LIGHT{_SEP}MAG{_SEP}LVL"
-        self.gpsHeader = f"LAT{_SEP}LON{_SEP}ALT{_SEP}SAT{_SEP}YEAR{_SEP}MONTH{_SEP}TIME{_SEP}HACC{_SEP}VACC{_SEP}SPEED{_SEP}HEAD{_SEP}HDACC{_SEP}HDADV{_SEP}SIGNAL{_SEP}"+ self.noGpsHeader
+        self.noGpsHeader = f"ACCX{SEP}ACCY{SEP}ACCZ{SEP}TEMP{SEP}LIGHT{SEP}MAG{SEP}LVL"
+        self.gpsHeader = f"LAT{SEP}LON{SEP}ALT{SEP}SAT{SEP}YEAR{SEP}MONTH{SEP}TIME{SEP}HACC{SEP}VACC{SEP}SPEED{SEP}HEAD{SEP}HDACC{SEP}HDADV{SEP}SIGNAL{SEP}"+ self.noGpsHeader
         self.logger = SimpleLogger(self.gpsHeader, 4, 1024 * 256, self.storageActivity) # 256 K x 4 files        
         self.gps = Gps(self.gpsDataHandler, self.gpsActivity)
         self.ble = Ble(self.bleActivity)
@@ -44,36 +45,54 @@ class Pixeltracker():
         self.writable = True
 
     def collectAndSendSensorData(self, inData):
+        #print(len(inData))
         data = inData
-        self.accelerometer.read()
-        data += _SEP + self.accelerometer.toString()
-
+        self.accelerometer.read()        
+        if LOG_USING_UBX_FORMAT:
+            data += UBXSEP + self.accelerometer.ubx()
+        else:
+            data += SEP + self.accelerometer.toString()
+        
         self.sensors.read()
-        data += _SEP + self.sensors.toString()
+        if LOG_USING_UBX_FORMAT:
+            data += UBXSEP + self.sensors.ubx()
+        else:            
+            data += SEP + self.sensors.toString()
 
         self.mic.read()
-        data += _SEP + self.mic.toString()
+        if LOG_USING_UBX_FORMAT:
+            data += UBXSEP + self.mic.ubx()
+        else:
+            data += SEP + self.mic.toString()
 
         #self.dataGetTime.showAndMark("GPS Handler: ")
         if self.ble.isConnected:
-            self.ble.write(data+"\n")
+            if LOG_USING_UBX_FORMAT:
+                self.ble.write(data)                
+            else:
+                self.ble.write(data+"\n")
 
-        self.logger.appendLine(data)
+        if LOG_USING_UBX_FORMAT:
+            self.logger.append(data)
+        else:
+            self.logger.appendLine(data)
 
         return data
 
-
     def gpsDataHandler(self, gps, validData):
-
-        gpsData = ""
+        
         if validData:
-            gpsData += gps.toString()
+            if LOG_USING_UBX_FORMAT:
+                gpsData = gps.ubx()
+            else:
+                gpsData = gps.toString()
         else:
             print("{}".format(gps.DATA_ERROR))
             return
         
         data = self.collectAndSendSensorData(gpsData)
-        print(data)
+        
+        print("{} {}".format(data,len(data)))
 
     def AKeyPressed(self):
         #self.gps.config()
