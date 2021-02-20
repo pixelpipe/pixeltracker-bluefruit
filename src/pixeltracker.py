@@ -92,7 +92,7 @@ class Pixeltracker():
         
         data = self.collectAndSendSensorData(gpsData)
         
-        print("{} {}".format(data,len(data)))
+        # print("{} {}".format(data,len(data)))
 
     def AKeyPressed(self):
         #self.gps.config()

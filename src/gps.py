@@ -15,7 +15,7 @@ class Gps():
         self._activity = activity
         self._onDataHandler = onDataHandler
         self._GMT_OFFSET = gmtOffset
-        self._UART_READ_COUNT = 2 #uartReadBufferSize
+        self._UART_READ_COUNT = 4 #uartReadBufferSize
         self._baudRate = baudRate
         # Configure the PPS Signal Pin
         # D6 = A1 = PPS (INPUT)
@@ -178,9 +178,7 @@ class Gps():
     def parseToUbx(self, block):
         if len(block)<=3:
             self.DATA_ERROR = "Not UBX" # No UBX
-            return False
-
-        # Extractinng UBX Class, ID and Len
+            return False        
         self.UBX_CLASS = block[0]
         self.UBX_ID = block[1]
         self.UBX_LEN = block[2] + block[3] * 256
