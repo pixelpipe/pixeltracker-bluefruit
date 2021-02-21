@@ -6,6 +6,7 @@ import busio
 import digitalio
 import binascii
 import utils
+import gc
 
 FLAG_LOG_ON = True
 
@@ -17,22 +18,144 @@ DSK_LED     = 4
 BLE_LED     = 5
 CON_LED     = 9
 
+OFF_SCREEN = 0
+GPS_SCREEN = 1
+BLE_SCREEN = 2
+SENSOR_SCREEN = 3
+ACC_SCREEN = 4
+ALL_SCREEN = 5
+LAST_SCREEN = 5
+
+USEC_MULT = 1000
+MSEC_MULT = 1000 * USEC_MULT
+SECONDS_MULT = 1000 * MSEC_MULT
+MIN_MULT = 60 * SECONDS_MULT
+HOUR_MULT = 60 * MIN_MULT
+
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+CYAN = (0, 255, 255)
+YELLOW = (255, 255, 0)
+BLUE = (0, 0, 255)
+WHITE = (255, 255, 255)
+PINK = (255, 0, 100)
+ORANGE = (230, 80, 0)
+BLACK = (0,0,0)
+
+TIMER_REPEAT = 0
+TIMER_STOPWATCH = 1
+TIMER_MARKER = 2
+
 class UbxGps():
 
     def __init__(self, onDataHandler, bufferSize):
         self._onDataHandler = onDataHandler
         self._buffer = bytearray(bufferSize)
         self._ubx = b''
-        self._uart = busio.UART(board.TX, board.RX, baudrate=9600)
-        self._enabled = digitalio.DigitalInOut(board.D9)
-        self._enabled.direction = digitalio.Direction.OUTPUT
+        self._uart = busio.UART(board.TX, board.RX, baudrate=9600, receiver_buffer_size = bufferSize)
+        self._enablePin = digitalio.DigitalInOut(board.D9)
+        self._enablePin.direction = digitalio.Direction.OUTPUT
         self.__ubxLeft = b""
         self.__ubxNext = b""
+        self._satelliteCount = 0
+        self.VALID_MAG = False
+        self.DATA_ERROR = '????'
+        self.FULLY_RESOLVED = False
+        self.VALID_TIME = False
+        self.VALID_DATE = False        
+        self.disable()
+
+    def parseValidationFlags(self, flags):
+        self.DATA_ERROR = "----"
+        if flags & 0b00001000:
+            self.VALID_MAG = True
+            self.DATA_ERROR[0] = "M"
+        else:
+            self.VALID_MAG = False
+            self.DATA_ERROR += ""
+
+        if flags & 0b00000100:
+            self.FULLY_RESOLVED = True
+            self.DATA_ERROR[1] = "R"
+        else:
+            self.FULLY_RESOLVED = True
+            self.DATA_ERROR += ""
+
+        if flags & 0b00000010:
+            self.VALID_TIME = True
+            self.DATA_ERROR[2] = "T"
+        else:
+            self.VALID_TIME = False
+            self.DATA_ERROR += ""
+
+        if flags & 0b00000001:
+            self.VALID_DATE = True
+            self.DATA_ERROR[3]= "D"
+        else:
+            self.VALID_DATE = False
+            self.DATA_ERROR += ""        
+
+    def getSignalColor(self):
+        maxLevel = 255
+        color = (maxLevel, 0, 0)
+
+        # TestColor:
+        self._satelliteCount = 1
+        self.FULLY_RESOLVED = True
+
+        if self._satelliteCount * 10 > maxLevel:
+            sLevel = maxLevel
+        else:
+            sLevel = maxLevel - self._satelliteCount * 10
+
+        if self.FULLY_RESOLVED:
+            color = (0 , sLevel, 0)
+        else:
+            color = (sLevel, 0, 0)
+
+        return color
+
+    def sendUbx(self, hexString):
+        data = binascii.unhexlify(hexString.replace(' ',''))
+        for i in range(len(data)):
+            print("{:02X} ".format(data[i]), end='')
+        self._uart.write(data)
+
+        drain = self._uart.read(100)
+
+        time.sleep(1)
+
+    def switchTo115200Bauds(self):
+        # UBX Only
+        #self.sendUbx("B5 62 06 00 14 00 01 00 00 00 D0 08 00 00 00 C2 01 00 03 00 03 00 00 00 00 00 BC 5E")
+        self.sendUbx("B5 62 06 00 14 00 01 00 00 00 D0 08 00 00 00 C2 01 00 07 00 03 00 00 00 00 00 C0 7E")
+
+    def switchTo9600Bauds(self):
+        self.sendUbx("B5 62 06 00 14 00 01 00 00 00 C0 08 00 00 80 25 00 00 01 00 01 00 00 00 00 00 8A 79")
+
+    def storeConfiguration(self):
+        self.sendUbx("B5 62 06 09 0D 00 00 00 00 00 02 00 00 00 00 00 00 00 03 21 CE")
+
+    def getBasicGpsInfo(self):
+        ubxMagic1 = self._ubx[0] 
+        ubxMagic2 = self._ubx[1]
+        ubxClass = self._ubx[2]
+        ubxId = self._ubx[3]
+        ubxLen = self._ubx[4] + self._ubx[5] * 256
+        packetLen = 6 + ubxLen + 2
+        if len(self._ubx) != packetLen:
+            self.DATA_ERROR = "xxxx"
+        else:
+            self._validationFlags = self.nav_pvt[6 + 7]
+            self.parseValidationFlags()
+            self._satelliteCount = self.nav_pvt[6 + 13]
+            parseValidationFlags()
 
     def read(self):
         """Read Buffer from UART"""
 
-        if not self._enabled:
+        # if gps is disable do not read fro UART
+        if not self._enablePin.value:
             return
     
         self._uart.readinto(self._buffer)
@@ -71,7 +194,7 @@ class UbxGps():
         ubxClass = self._ubx[2]
         ubxId = self._ubx[3]
         ubxLen = self._ubx[4] + self._ubx[5] * 256
-        packetLen = 6 + ubxLen + 2        
+        packetLen = 6 + ubxLen + 2
         if len(self._ubx) != packetLen:
             print("Broken UBX: Expected {}  got {}".format(packetLen, len(self._ubx)))
             print(binascii.hexlify(self._ubx))
@@ -84,10 +207,12 @@ class UbxGps():
             x = struct.unpack_from('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL', self._ubx, 6)
             json = {
                 "type":"ubxNavPvt",
+                "valid": self.DATA_ERROR,
+                "numsv":x[13],
+                "lon":x[14],"lat":x[15],"alt":x[16],"hmsl":x[17],"hacc":x[18],"vacc":x[19],                
                 "itow":x[0],
                 "year":x[1],"month":x[2],"day":x[3],"hour":x[4],"min":x[5],"sec":x[6],
-                "valid":x[7],"tacc":x[8],"nano":x[9],"fixtype":x[10],"flags":x[11],"flags2":x[12],
-                "numsv":x[13],"lon":x[14],"lat":x[15],"alt":x[16],"hmsl":x[17],"hacc":x[18],"vacc":x[19],
+                "valid":x[7],"tacc":x[8],"nano":x[9],"fixtype":x[10],"flags":x[11],"flags2":x[12],                
                 "veln":x[20],"vele":x[21],"veld":x[22],"speed":x[23],
                 "headmot":x[24],"sacc":x[25],"headacc":x[26],"pdop":x[27],"flags3":x[28],"rsvd1":x[29],"headveh":x[30],
                 "magdec":x[31],"magacc":x[22]
@@ -97,15 +222,15 @@ class UbxGps():
 
 
     def enable(self):        
-        self._enabled.value = True
-        print("GPS ON" if self._enabled.value else "GPS OFF")
+        self._enablePin.value = True
+        print("GPS ON" if self._enablePin.value else "GPS OFF")
 
     def disable(self):
-        self._enabled.value = False
+        self._enablePin.value = False
 
     @property
     def enabled(self):
-        return self._enabled.value
+        return self._enablePin.value
 
 class Leds():
     def __init__(self, pixelCount, brightness):
@@ -287,30 +412,27 @@ class SimpleLogger:
     def checkNextFile(self):
         # check if log file size exceeds the allowed max size
         if self._loggedBytes > self._logSize:
+            
             # increment log number
             self._crtLog = self._crtLog + 1
-            # circular logs
+            
+            # use circular logging
             if self._crtLog >= self._logs:
                 self._crtLog = 0
+            
             # build the filename
             self._logFile = "{}.txt".format(self._crtLog)
+
             # initialize the new file and write the header befor logging
             self.writeData(self._header, 'w')
-            """
-            if self._writable:
-                with open(self._logFile, 'w') as fp:
-                    fp.write(self._header)
-                    fp.flush()
-                    self._loggedBytes = len(self._header)
-            else:
-                print("{} {} [{}/{}]".format(self._diskState, self._logFile, len(self._header), self._loggedBytes))
-                #print(self._header)
-                self._loggedBytes = len(self._header)
-            """
+            
+            # init the logged bytes to 0
+            self._loggedBytes = 0
 
     def writeData(self, data, flag):
+
         # write data
-        if self._writable:  
+        if self._writable:
             with open(self._logFile, flag) as fp:
                 fp.write(data)
                 fp.flush()
@@ -345,70 +467,62 @@ class SimpleLogger:
     def canWrite(self):
         return self._writable
 
-class Timer():
-    """Timer class"""
-    def __init__(self, enabled = True):
-        self._NOW = 0
-        self._PREV = self._NOW
-        self.mark()
-        self._DELTA = 0
-        self._stopped = True
-        self._stopWatch = 0
-        self._enabled = enabled
+class TimerPool():
+    def __init__(self):
+        self._name = []
+        self._startTime = [ ]
+        self._delta = [ ]
+        self._time = [ ]
+        self._onTime = [ ]
+        self._enabled = [ ]
+        self._type = []
 
-    def mark(self):
-        self._NOW = time.monotonic_ns()
-        self._PREV = self._NOW
+    def addTimer(self, name, type, setTime, onTime, enabled):
+        crtTime = time.monotonic_ns()
 
-    def stopWatch(self, msTime):
-        self._stopWatch = msTime
-        self._stopped = False
-        self.mark()
+        self._name.append(name)
+        self._type.append(type)
+        self._startTime.append(crtTime)
+        self._delta.append(0)
+        self._time.append(setTime)
+        self._onTime.append(onTime)
+        self._enabled.append(enabled)
 
-    def reset(self):
-        self._stopped = False
-        self.mark()        
+        return id
 
-    def stop(self):
-        self._stopped = True
+    def getTimerId(self, name):
+        for id in range(len(self._name)):
+            if self._name[id] == name:
+                return id
+        else:
+            return -1
 
-    def stopped(self):
-        if self._stopped:
-            return True
-        self._NOW = time.monotonic_ns()
-        self.calc()
-        if self._DELTA > (self._stopWatch * 1000000):
-            self.stooped = True
-            return True
-        return False
+    def restart(self, id):
+        self._startTime[id] = time.monotonic_ns()
+        self._delta[id] = 0
+        self._enabled[id] = True
 
-    def calc(self):
-        self._DELTA = self._NOW - self._PREV
+    def tick(self):
 
-    def showAndMark(self, msg = ""):
-        self._NOW = time.monotonic_ns()
-        self.calc()
-        self.mark()
-        self.print(msg)
+        crtTime = time.monotonic_ns()
 
-    def show(self, msg = ""):
-        self._NOW = time.monotonic_ns()
-        self.calc()
-        self.print(msg)
+        for id in range(len(self._name)):
+            self._delta[id] = crtTime - self._startTime[id]
 
-    def print(self, msg = ""):
-        print("{}{:.2f} ms".format(msg if msg != "" else "", self._DELTA/1000/1000))
+            if self._delta[id] >= self._time[id]:
+                # print(self._delta[id])
+                if self._enabled[id]:
+                    self._onTime[id]()
+                
+                # Repeat Timer
+                if self._type[id] == TIMER_REPEAT:
+                    self._startTime[id] = time.monotonic_ns()
+                    self._delta[id] = 0
 
-
-    def enable(self):
-        self._enabled = True
-
-    def disable(self):
-        self._enabled = False
-
-    @property
-    def enabled(self):
-        return self._enabled
+                # StopWatch Timer
+                if self._type[id] == TIMER_STOPWATCH:
+                    # Disable
+                    self._enabled = False
 
 import busio
 import adafruit_lis3dh
@@ -583,28 +697,65 @@ class PixelTrackerLite:
         self._sensors = Sensors()
         self._accelerometer = Accelerometer()
         self._microphone = Microphone(32)
-        self._logger = SimpleLogger(self.onLogData, b'UBX', 5, 250 * 1000 + 3)
-        self.perf = Timer()
+        self._logger = SimpleLogger(self.onLogData, b'UBX', 5, 250 + 3)
+        self._screenId = 0
+        self._timers = TimerPool()
+
+    def handleDisplay(self):
+        self._screenId += 1
+
+        if self._screenId>LAST_SCREEN:
+            self._screenId = 0
+
+        if self._screenId == OFF_SCREEN:
+            self.handleOffScreen()
+        if self._screenId == GPS_SCREEN:
+            self.handleGpsScreen()
+        if self._screenId == BLE_SCREEN:
+            self.handleBleScreen()
+        if self._screenId == SENSOR_SCREEN: 
+            self.handleSensorScreen()
+        if self._screenId == ACC_SCREEN:
+            self.handleAccScreen()
+        if self._screenId == ALL_SCREEN:
+            self.handleAllScreen()
+
+    def handleOffScreen(self):
+        print("OFF")        
+        pass
+
+    def handleGpsScreen(self):
+        print("GPS")
+        #self._gps.switchTo115200Bauds()
+        #self._gps.storeConfiguration()
+        pass
+
+    def handleBleScreen(self):
+        print("BLE")
+        pass
+
+    def handleSensorScreen(self):
+        print("SENSORS")
+        pass
+
+    def handleAccScreen(self):
+        print("ACCELEROMETER")
+        pass
+    
+    def handleAllScreen(self):
+        print("ALL")
+        pass
 
     def sendAllData(self):
         """Send All Data"""
-        self.perf.showAndMark("SendAllData : ")
-        self._leds.set(GPS_LED, (255, 0, 0))
-        self._leds.clear(GPS_LED)
         self._logger.append(self._gps.toUbx())
 
-        self._leds.set(SEN_LED, (0, 155, 0))
-        self._leds.clear(SEN_LED)
         self._sensors.read()
         self._logger.append(self._sensors.toUbx())
 
-        self._leds.set(ACC_LED, (0, 155, 0))
-        self._leds.clear(ACC_LED)
         self._accelerometer.read()
         self._logger.append(self._accelerometer.toUbx())
         
-        self._leds.set(MIC_LED, (0, self._microphone._level, 0))
-        self._leds.clear(MIC_LED)
         self._logger.append(self._microphone.toUbx())
 
         if self._ble.connected:            
@@ -618,26 +769,16 @@ class PixelTrackerLite:
             self._ble.write('\n')
 
     def onLogData(self, data, diskStatus):
-        if diskStatus == 'Ok':
-            self._leds.set(DSK_LED, (0,99,0))
-        else:
-            if diskStatus == 'Disk full':
-                self._leds.set(DSK_LED, (99,40,0))
-            else:
-                self._leds.set(DSK_LED, (99,0,0))
-        self._leds.clear(DSK_LED)
+        pass
 
 
     def onBleConnectionStateChanged(self):
         if self._ble.connected:
             print("BLE Client connected")
-            self._leds.set(CON_LED, (0,25,0))
         else:
-            print("BLE Client disconnected")
-            self._leds.clear(CON_LED)
+            print("BLE Client disconnected")            
 
     def onBleAdvertising(self):
-        #self._leds.set(BLE_LED, (0, 255, 255))
         pass
 
     def AKeyPressed(self):
@@ -655,57 +796,46 @@ class PixelTrackerLite:
 
     def BKeyPressed(self):        
         #print("B")
-        self._ble.startAdvertising()
+        self._speaker.playFile("on.wav")
+        self.handleDisplay()
 
     def onWrite(self, data):        
-        self._leds.set(BLE_LED, (0, 0, 155))
-        self._leds.set(BLE_LED, (0, 0, 0))                
+        pass
+
+    def onTickSecond(self):
+        pass
+
+    def onTickMinute(self):
+        pass
+
+    def onTickHour(self):
+        pass
+
+    def onStandby(self):
+        pass
+
+    def onTick50Ms(self):
+        if self._screenId != OFF_SCREEN:
+            self._leds.blink(self._screenId,BLUE)
+
+    def checkFreeMem(self):
+        freeMem = gc.mem_free()
+        print("{:.2f} kb free".format(freeMem/1024))
+
+    def registerTimers(self):
+        self._timers.addTimer("Every second",TIMER_REPEAT, 1*SECONDS_MULT,self.onTickSecond,True)
+        self._timers.addTimer("Standby Timer",TIMER_STOPWATCH, 30*SECONDS_MULT,self.onStandby,True)
+        self._timers.addTimer("Every minutes",TIMER_REPEAT, 1*MIN_MULT,self.onTickMinute,True)
+        self._timers.addTimer("Every hour",TIMER_REPEAT, 1*HOUR_MULT,self.onTickHour,True)
+        self._timers.addTimer("Every 50 msec", TIMER_REPEAT, 100*MSEC_MULT, self.onTick50Ms, True)
 
     def run(self):
-        blinkTimer = Timer()
-        gpsBootTimer = Timer()
-        autoOffTimer = Timer()
-        sendSensorDataTimer = Timer()
-        sendAccelerometerDataTimer = Timer()
-        #self._gps.enable()
-        #self._ble.enable()        
         self._speaker.playFile("on.wav")
-
-        didGPSBooted = False
-
-        gpsBootTimer.stopWatch(3000)
-        blinkTimer.stopWatch(30)
-        sendSensorDataTimer.stopWatch(1000)
-        sendAccelerometerDataTimer.stopWatch(1000)
-
+        self.registerTimers()
+        self.checkFreeMem()
         while True:
             self._buttons.read()
-
-            if gpsBootTimer.enabled:
-                if gpsBootTimer.stopped():
-                    didGPSBooted =  True
-
-            if didGPSBooted and self._gps.enabled:
-                self._gps.read()
-
-            """
-            if not self._gps.enabled:
-                if self._sensors.enabled:
-                    if sendSensorDataTimer.stopped():
-                        self.logSensorData()
-                        sendSensorDataTimer.reset()
-
-                if self._accelerometer.enabled:
-                    if sendAccelerometerDataTimer.stopped():                    
-                        self.logAccelerometerData()
-                        sendAccelerometerDataTimer.reset()
-            """
-            if blinkTimer.enabled:
-                if blinkTimer.stopped():
-                    if self._ble.isAdvertising:
-                        if not self._ble.connected:
-                            self._leds.blink(CON_LED,(0,44,77))
-                    blinkTimer.reset()
-
+            self._gps.read()
             self._ble.read()
             self._microphone.read()
+            self._timers.tick()
