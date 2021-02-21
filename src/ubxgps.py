@@ -21,10 +21,11 @@ CON_LED     = 9
 OFF_SCREEN = 0
 GPS_SCREEN = 1
 BLE_SCREEN = 2
-SENSOR_SCREEN = 3
-ACC_SCREEN = 4
-ALL_SCREEN = 5
-LAST_SCREEN = 5
+MIC_SCREEN = 3
+SENSOR_SCREEN = 4
+ACC_SCREEN = 5
+LOG_SCREEN = 6
+LAST_SCREEN = 6
 
 USEC_MULT = 1000
 MSEC_MULT = 1000 * USEC_MULT
@@ -58,62 +59,100 @@ class UbxGps():
         self.__ubxLeft = b""
         self.__ubxNext = b""
         self._satelliteCount = 0
+        self.DATA_ERROR = {}
         self.VALID_MAG = False
-        self.DATA_ERROR = '????'
         self.FULLY_RESOLVED = False
         self.VALID_TIME = False
-        self.VALID_DATE = False        
+        self.VALID_DATE = False
+        self.GNSS_FIX_OK = False
+        self.HEAD_VEH_VALID = False
+        self.SAT_COUNT = False
+        self._validationFlags = 0
+        self._fixFlags = 0
         self.disable()
 
-    def parseValidationFlags(self, flags):
-        self.DATA_ERROR = "----"
-        if flags & 0b00001000:
+    def parseValidationFlags(self):
+        validFlags = self._validationFlags
+        fixFlags = self._fixFlags
+        #print("{0:b}".format(flags))
+        self.DATA_ERROR = {}
+        if validFlags & 0b00001000:
             self.VALID_MAG = True
-            self.DATA_ERROR[0] = "M"
+            self.DATA_ERROR['mag'] = True
         else:
             self.VALID_MAG = False
-            self.DATA_ERROR += ""
+            self.DATA_ERROR['mag'] = False
 
-        if flags & 0b00000100:
+        if validFlags & 0b00000100:
             self.FULLY_RESOLVED = True
-            self.DATA_ERROR[1] = "R"
+            self.DATA_ERROR['resolved'] = True
         else:
-            self.FULLY_RESOLVED = True
-            self.DATA_ERROR += ""
+            self.FULLY_RESOLVED = False
+            self.DATA_ERROR['resolved'] = False
 
-        if flags & 0b00000010:
+        if validFlags & 0b00000010:
             self.VALID_TIME = True
-            self.DATA_ERROR[2] = "T"
+            self.DATA_ERROR['time'] = True
         else:
             self.VALID_TIME = False
-            self.DATA_ERROR += ""
+            self.DATA_ERROR['time'] = False
 
-        if flags & 0b00000001:
+        if validFlags & 0b00000001:
             self.VALID_DATE = True
-            self.DATA_ERROR[3]= "D"
+            self.DATA_ERROR['date'] = True
         else:
             self.VALID_DATE = False
-            self.DATA_ERROR += ""        
+            self.DATA_ERROR['date'] = False
+
+        if fixFlags & 0b10000000:
+            self.DATA_ERROR['carsoln'] = True
+        else:            
+            self.DATA_ERROR['carsoln'] = False
+            
+        if fixFlags & 0b00100000:
+            self.HEAD_VEH_VALID = True
+            self.DATA_ERROR['headvehvalid'] = True
+        else:
+            self.HEAD_VEH_VALID = False
+            self.DATA_ERROR['headvehvalid'] = False
+
+        if fixFlags & 0b00010000:
+            self.DATA_ERROR['psmstate'] = True
+        else:            
+            self.DATA_ERROR['psmstate'] = False
+
+        if fixFlags & 0b00000010:
+            self.DATA_ERROR['difsoln'] = True
+        else:            
+            self.DATA_ERROR['difsoln'] = False
+
+        if fixFlags & 0b00000001:
+            self.GNSS_FIX_OK = True
+            self.DATA_ERROR['gnssfixok'] = True
+        else:
+            self.GNSS_FIX_OK = False
+            self.DATA_ERROR['gnssfixok'] = False
+            
+        if self._satelliteCount >= 3:
+            self.SAT_COUNT = True
+            self.DATA_ERROR['satcount'] = True
+        else:
+            self.SAT_COUNT = False
+            self.DATA_ERROR['satcount'] = False
+        
+        #print(self.DATA_ERROR)
 
     def getSignalColor(self):
         maxLevel = 255
-        color = (maxLevel, 0, 0)
 
-        # TestColor:
-        self._satelliteCount = 1
-        self.FULLY_RESOLVED = True
-
-        if self._satelliteCount * 10 > maxLevel:
-            sLevel = maxLevel
-        else:
-            sLevel = maxLevel - self._satelliteCount * 10
+        mult = self._satelliteCount * 20
+        
+        sLevel = mult if mult < maxLevel else maxLevel
 
         if self.FULLY_RESOLVED:
-            color = (0 , sLevel, 0)
+            return (0,sLevel,0)
         else:
-            color = (sLevel, 0, 0)
-
-        return color
+            return (sLevel,0,0)
 
     def sendUbx(self, hexString):
         data = binascii.unhexlify(hexString.replace(' ',''))
@@ -137,7 +176,7 @@ class UbxGps():
         self.sendUbx("B5 62 06 09 0D 00 00 00 00 00 02 00 00 00 00 00 00 00 03 21 CE")
 
     def getBasicGpsInfo(self):
-        ubxMagic1 = self._ubx[0] 
+        ubxMagic1 = self._ubx[0]
         ubxMagic2 = self._ubx[1]
         ubxClass = self._ubx[2]
         ubxId = self._ubx[3]
@@ -146,10 +185,11 @@ class UbxGps():
         if len(self._ubx) != packetLen:
             self.DATA_ERROR = "xxxx"
         else:
-            self._validationFlags = self.nav_pvt[6 + 7]
+            self._validationFlags = self._ubx[6 + 11]
+            self._fixFlags = self._ubx[6 + 21]
             self.parseValidationFlags()
-            self._satelliteCount = self.nav_pvt[6 + 13]
-            parseValidationFlags()
+            self._satelliteCount = self._ubx[6 + 23]
+            self.parseValidationFlags()
 
     def read(self):
         """Read Buffer from UART"""
@@ -157,15 +197,20 @@ class UbxGps():
         # if gps is disable do not read fro UART
         if not self._enablePin.value:
             return
-    
+
         self._uart.readinto(self._buffer)
 
-        magicIndex = self._buffer.find(b'\xb5\x62')        
-        if magicIndex>=0:            
-            # move leftover into ubx and process it            
+        magicIndex = self._buffer.find(b'\xb5\x62')
+        if magicIndex>=0:
+            # move leftover into ubx and process it
             self._ubx+=self._buffer[:magicIndex]
+
+            # Get Basic Info
+            self.getBasicGpsInfo()
+
             if self._onDataHandler:
                 self._onDataHandler()
+
             # init ubx with the next bytes
             self._ubx=self._buffer[magicIndex:]
         else:
@@ -189,7 +234,7 @@ class UbxGps():
 
     def toJson(self):
         str = ""
-        ubxMagic1 = self._ubx[0] 
+        ubxMagic1 = self._ubx[0]
         ubxMagic2 = self._ubx[1]
         ubxClass = self._ubx[2]
         ubxId = self._ubx[3]
@@ -209,10 +254,10 @@ class UbxGps():
                 "type":"ubxNavPvt",
                 "valid": self.DATA_ERROR,
                 "numsv":x[13],
-                "lon":x[14],"lat":x[15],"alt":x[16],"hmsl":x[17],"hacc":x[18],"vacc":x[19],                
+                "lon":x[14],"lat":x[15],"alt":x[16],"hmsl":x[17],"hacc":x[18],"vacc":x[19],
                 "itow":x[0],
                 "year":x[1],"month":x[2],"day":x[3],"hour":x[4],"min":x[5],"sec":x[6],
-                "valid":x[7],"tacc":x[8],"nano":x[9],"fixtype":x[10],"flags":x[11],"flags2":x[12],                
+                "valid":x[7],"tacc":x[8],"nano":x[9],"fixtype":x[10],"flags":x[11],"flags2":x[12],
                 "veln":x[20],"vele":x[21],"veld":x[22],"speed":x[23],
                 "headmot":x[24],"sacc":x[25],"headacc":x[26],"pdop":x[27],"flags3":x[28],"rsvd1":x[29],"headveh":x[30],
                 "magdec":x[31],"magacc":x[22]
@@ -221,12 +266,18 @@ class UbxGps():
         return str
 
 
-    def enable(self):        
+    def enable(self):
         self._enablePin.value = True
         print("GPS ON" if self._enablePin.value else "GPS OFF")
 
     def disable(self):
         self._enablePin.value = False
+        
+    def toggle(self):
+        if self._enablePin.value:
+            self.disable()
+        else:
+            self.enable()
 
     @property
     def enabled(self):
@@ -289,7 +340,8 @@ class Ble():
         self._onAdvertising = onAdvertising
         self._onWrite = onWrite
         self.__oldConnectionState = False
-        self._onConnectionStateChanged = onConnectionStateChanged
+        self._onConnectionStateChanged = onConnectionStateChanged        
+        self._enabled = False
 
     def write(self, data):
         if self._ble.connected:
@@ -312,13 +364,27 @@ class Ble():
         print("Stopped Advertising")
         self._ble.stop_advertising()
         self._isAdvertising = False
-    
+
     def read(self):
 
         if self._ble.connected != self.__oldConnectionState:
             self._onConnectionStateChanged()
 
         self.__oldConnectionState = self._ble.connected
+
+    def enable(self):
+        self.startAdvertising()
+        self._enabled = True
+
+    def disable(self):
+        self.stopAdvertising()
+        self._enabled = False
+
+    def toggle(self):
+        if self._enabled:
+            self.disable()
+        else:
+            self.enable()
 
     @property
     def isAdvertising(self):
@@ -327,6 +393,11 @@ class Ble():
     @property
     def connected(self):
         return self._ble.connected
+
+    @property
+    def enabled(self):
+        return self._enabled
+
 
 import digitalio
 try:
@@ -361,8 +432,8 @@ class Speaker():
 class Buttons():
     """Handles the button states"""
     def __init__(self, keyHandlerA, keyHandlerB):
-        self.__buttonAState = False
-        self.__buttonBState = False
+        self._buttonAState = False
+        self._buttonBState = False
         self._onButtonAPressed = keyHandlerA
         self._onButtonBPressed = keyHandlerB
         # Configure the A Button
@@ -380,7 +451,7 @@ class Buttons():
         else:
             self._buttonAState = False
 
-        if self._buttonB.value:            
+        if self._buttonB.value:
             if not self._buttonBState:
                 self._onButtonBPressed()
                 self._buttonBState = True
@@ -405,32 +476,51 @@ class SimpleLogger:
         self._crtLog = 0
         self._logSize = logSize
         self._writable = True
+        self._diskFull = False
         self._loggedBytes = 0
         self._header = header
         self._diskState = "Ok"
+        self._debug = False
+        self._enabled = False
+        self.testDiskAccess()
+
+    def testDiskAccess(self):
+        """Appends data to a file"""
+        try:
+            with open("test.txt", "w") as fp:
+                fp.write("ok")
+                fp.flush()            
+        except OSError as e:
+            # cant write -> not writable
+            if e.args[0] == 28:  # If the file system is full...
+                self._diskState = "Disk full"
+                self._diskFull = True
+            else:
+                self._diskState = "Disk protected"
+            self._writable = False
 
     def checkNextFile(self):
         # check if log file size exceeds the allowed max size
         if self._loggedBytes > self._logSize:
-            
+
             # increment log number
             self._crtLog = self._crtLog + 1
-            
+
             # use circular logging
             if self._crtLog >= self._logs:
                 self._crtLog = 0
-            
+
             # build the filename
             self._logFile = "{}.txt".format(self._crtLog)
 
-            # initialize the new file and write the header befor logging
-            self.writeData(self._header, 'w')
-            
+            if self._writable:
+                # initialize the new file and write the header befor logging
+                self.writeData(self._header, 'w')
+
             # init the logged bytes to 0
             self._loggedBytes = 0
 
     def writeData(self, data, flag):
-
         # write data
         if self._writable:
             with open(self._logFile, flag) as fp:
@@ -438,13 +528,14 @@ class SimpleLogger:
                 fp.flush()
                 self._loggedBytes = self._loggedBytes + len(data)
         else:
-            print("{} {} [{}/{}]".format(self._diskState, self._logFile, len(data), self._loggedBytes))
-            #print(data)
+            if self._debug:
+                print("{} {} [{}/{}]".format(self._diskState, self._logFile, len(data), self._loggedBytes))
+                #print(data)
             self._loggedBytes = self._loggedBytes + len(data)
 
         if self._onLogData:
             self._onLogData(data, self._diskState)
-    
+
     def append(self, data):
         """Appends data to a file"""
         try:
@@ -455,6 +546,7 @@ class SimpleLogger:
             # cant write -> not writable
             if e.args[0] == 28:  # If the file system is full...
                 self._diskState = "Disk full"
+                self._diskFull = True
             else:
                 self._diskState = "Disk protected"
             self._writable = False
@@ -462,6 +554,23 @@ class SimpleLogger:
     def appendLine(self, data):
         """Appends a line of data to a file"""
         self.append(data+"\n")
+        
+    def enable(self):
+        print("Logging On")
+        self._enabled = True
+
+    def disable(self):
+        print("Logging Off")
+        self._enabled = False
+
+    def toggle(self):
+        if self._enabled:
+            self.disable()
+        else:
+            self.enable()
+    @property
+    def enabled(self):
+        return self._enabled
 
     @property
     def canWrite(self):
@@ -508,7 +617,7 @@ class TimerPool():
         self._delta[id] = 0
         self._enabled[id] = False
 
-    def resume(self,id):
+    def resume(self, id):
         self._enabled[id] = True
 
     def restartByName(self, name):
@@ -531,12 +640,8 @@ class TimerPool():
 
             self._delta[id] = crtTime - self._startTime[id]
 
-            self._leds.blink(3, RED)
-
             if self._delta[id] >= self._time[id]:
-                
-                print(self._delta[id])
-                
+
                 if self._enabled[id]:
                     self._onTime[id]()
 
@@ -571,7 +676,7 @@ class Accelerometer():
     def read(self):
 
         if not self._enabled:
-            return            
+            return
 
         #self._data = [ value / adafruit_lis3dh.STANDARD_GRAVITY for value in self._lis3dh.acceleration]
         #for i in range(3):
@@ -586,14 +691,22 @@ class Accelerometer():
             'accx' : self._data[0],
             'accy' : self._data[1],
             'accz' : self._data[2]
-        }        
+        }
         return "{}".format(json)
 
     def enable(self):
+        print("Accelerometer On")
         self._enabled = True
 
     def disable(self):
+        print("Accelerometer Off")
         self._enabled = False
+
+    def toggle(self):
+        if self._enabled:
+            self.disable()
+        else:
+            self.enable()
 
     @property
     def enabled(self):
@@ -618,6 +731,7 @@ class Microphone():
         self._input_ceiling = self._input_floor + 500
         self._level = 0
         self._magnitude = 0
+        self._enabled = False
 
     def constrain(self, value, floor, ceiling):
         """Restricts value to be between floor and ceiling."""
@@ -660,7 +774,25 @@ class Microphone():
 
     def toUbx(self):
         return struct.pack("<BBHff",ord('S'), ord('M'), 8,self._magnitude/100, self._level/100)
+        
+    def enable(self):
+        print("Microphone On")
+        self._enabled = True
 
+    def disable(self):
+        print("Microphone Off")
+        self._enabled = False
+
+    def toggle(self):
+        if self._enabled:
+            self.disable()
+        else:
+            self.enable()
+
+    @property
+    def enabled(self):
+        return self._enabled
+        
 import analogio
 import adafruit_thermistor
 class Sensors():
@@ -696,15 +828,23 @@ class Sensors():
         return "{}".format(json)
 
     def enable(self):
+        print("Sensors On")
         self._enabled = True
 
     def disable(self):
+        print("Sensors Off")
         self._enabled = False
+        
+    def toggle(self):
+        if self._enabled:
+            self.disable()
+        else:
+            self.enable()
 
     @property
     def enabled(self):
         return self._enabled
-
+        
     @property
     def thermistor(self):
         return self._thermistor
@@ -729,18 +869,25 @@ class PixelTrackerLite:
         self._timers = TimerPool()
 
     def handleScreens(self):
+        self.handleAllScreens()
         if self._screenId == OFF_SCREEN:
             self.handleOffScreen()
         if self._screenId == GPS_SCREEN:
             self.handleGpsScreen()
         if self._screenId == BLE_SCREEN:
             self.handleBleScreen()
-        if self._screenId == SENSOR_SCREEN: 
+        if self._screenId == SENSOR_SCREEN:
             self.handleSensorScreen()
         if self._screenId == ACC_SCREEN:
             self.handleAccScreen()
-        if self._screenId == ALL_SCREEN:
-            self.handleAllScreen()
+        if self._screenId == MIC_SCREEN:
+            self.handleMicScreen()
+        if self._screenId == LOG_SCREEN:
+            self.handleLogScreen()
+        self._leds.allOff() # saves energy
+        
+    def currenScreenIs(self, screeId):
+        return self._screenId == screeId
 
     def nextScreen(self):
         self._screenId += 1
@@ -751,95 +898,214 @@ class PixelTrackerLite:
     def setScreen(self, screenId):
         self._screenId = screenId
         self._speaker.playFile("on.wav")
-        self.handleScreens()
+        
+        self.handleAllScreens()
+        
+        if self._screenId == OFF_SCREEN:
+            print("All Feature")
+        if self._screenId == GPS_SCREEN:
+            print("GPS")
+        if self._screenId == BLE_SCREEN:
+            print("BLE")
+        if self._screenId == SENSOR_SCREEN:
+            print("Sensors")
+        if self._screenId == ACC_SCREEN:
+            print("Accelerometer")
+        if self._screenId == MIC_SCREEN:
+            print("Microphone")
+        if self._screenId == LOG_SCREEN:
+            print("Logger")
+
+    def handleAllScreens(self):
+        if not self._logger._writable:
+            self._leds.set(0, RED)
+        if self._logger._diskFull:
+            self._leds.set(0, ORANGE)
 
     def handleOffScreen(self):
-        print("OFF")        
         pass
 
     def handleGpsScreen(self):
-        print("GPS")
+        if not self._gps.enabled:
+            return
+            
+        self._leds.set(2, GREEN if self._gps.FULLY_RESOLVED else RED)
+        self._leds.set(3, GREEN if self._gps.SAT_COUNT else RED)
+        self._leds.set(4, GREEN if self._gps.HEAD_VEH_VALID else RED)
+        self._leds.set(5, GREEN if self._gps.GNSS_FIX_OK else RED)
+        self._leds.set(6, GREEN if self._gps.VALID_TIME else RED)
+        self._leds.set(7, GREEN if self._gps.VALID_DATE else RED)
+        self._leds.set(9, self._gps.getSignalColor())
+        #self._leds.allOff()
+        #self._leds.set(3, self._gps.getSignalColor())
         #self._gps.switchTo115200Bauds()
         #self._gps.storeConfiguration()
-        pass
 
     def handleBleScreen(self):
-        print("BLE")
-        pass
+        if not self._ble.enabled:
+            return
+            
+        self._leds.set(3, BLUE if self._ble._isAdvertising else RED)
+        self._leds.set(4, BLUE if self._ble.connected else RED)
 
     def handleSensorScreen(self):
-        print("SENSORS")
-        pass
-
+        if not self._sensors.enabled:
+            return
+            
     def handleAccScreen(self):
-        print("ACCELEROMETER")
-        pass
-    
-    def handleAllScreen(self):
-        print("ALL")
-        pass
+        if not self._accelerometer.enabled:
+            return
+        
+    def handleMicScreen(self):
+        if not self._microphone.enabled:
+            return
+
+    def handleLogScreen(self):
+        if not self._logger.enabled:
+            return
 
     def sendAllData(self):
         """Send All Data"""
-        self._logger.append(self._gps.toUbx())
-
-        self._sensors.read()
-        self._logger.append(self._sensors.toUbx())
-
-        self._accelerometer.read()
-        self._logger.append(self._accelerometer.toUbx())
         
-        self._logger.append(self._microphone.toUbx())
+        if self._logger.enabled:
+            self._logger.append(self._gps.toUbx())
+        
+        if self._sensors.enabled:
+            self._sensors.read()
+            
+        if self._logger.enabled:
+            self._logger.append(self._sensors.toUbx())
+            
+        self._buttons.read()
 
-        if self._ble.connected:            
-            self._ble.write(self._gps.toJson())
-            self._ble.write('\n')
-            self._ble.write(self._sensors.toJson())
-            self._ble.write('\n')
-            self._ble.write(self._accelerometer.toJson())
-            self._ble.write('\n')
-            self._ble.write(self._microphone.toJson())
-            self._ble.write('\n')
+        if self._accelerometer.enabled:
+            self._accelerometer.read()
+            
+        if self._logger.enabled:
+            self._logger.append(self._accelerometer.toUbx())
+
+        if self._microphone.enabled:
+            self._microphone.read()
+            
+        if self._logger.enabled:
+            self._logger.append(self._microphone.toUbx())
+            
+        self._buttons.read()
+
+        if self._ble.enabled:
+            if self._ble.connected:
+                if self._gps.enabled:
+                    self._ble.write(self._gps.toJson())
+                    self._ble.write('\n')
+                if self._sensors.enabled:                    
+                    self._ble.write(self._sensors.toJson())            
+                    self._ble.write('\n')
+                if self._accelerometer.enabled:
+                    self._ble.write(self._accelerometer.toJson())
+                    self._ble.write('\n')
+                if self._microphone.enabled:
+                    self._ble.write(self._microphone.toJson())
+                    self._ble.write('\n')
 
     def onLogData(self, data, diskStatus):
         pass
-
 
     def onBleConnectionStateChanged(self):
         if self._ble.connected:
             print("BLE Client connected")
         else:
-            print("BLE Client disconnected")            
+            print("BLE Client disconnected")
 
     def onBleAdvertising(self):
         pass
 
     def AKeyPressed(self):
         #print("A")
-        if self._gps.enabled:
-            self._speaker.playFile("off.wav")
-            self._gps.disable()            
-            self._ble.stopAdvertising()
-        else:
-            self._speaker.playFile("on.wav")
-            self._gps.enable()
-            self._ble.startAdvertising()
-            self._sensors.enable()
-            self._accelerometer.enable()
-
-    def BKeyPressed(self):        
-        #print("B")        
+        if self.currenScreenIs(OFF_SCREEN):
+            if self._gps.enabled:
+                self._speaker.playFile("off.wav")
+                self._ble.stopAdvertising()
+                self._gps.disable()
+                self._ble.disable()
+                self._sensors.disable()
+                self._accelerometer.disable()
+                self._microphone.disable()
+                self._logger.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._ble.startAdvertising()                
+                self._gps.enable()
+                self._ble.enable()
+                self._sensors.enable()
+                self._accelerometer.enable()
+                self._microphone.enable()
+                self._logger.enable()
+                
+        if self.currenScreenIs(GPS_SCREEN):
+            if self._gps.enabled:
+                self._speaker.playFile("off.wav")
+                self._gps.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._gps.enable()
+                
+        if self.currenScreenIs(BLE_SCREEN):
+            if self._ble.enabled:
+                self._speaker.playFile("off.wav")
+                self._ble.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._ble.enable()
+            
+        if self.currenScreenIs(SENSOR_SCREEN):
+            if self._sensors.enabled:
+                self._speaker.playFile("off.wav")
+                self._sensors.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._sensors.enable()
+                
+        if self.currenScreenIs(ACC_SCREEN):
+            if self._accelerometer.enabled:
+                self._speaker.playFile("off.wav")
+                self._accelerometer.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._accelerometer.enable()
+            
+        if self.currenScreenIs(MIC_SCREEN):
+            print("MICROPHONE")
+            if self._microphone.enabled:
+                self._speaker.playFile("off.wav")
+                self._microphone.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._microphone.enable()
+                
+        if self.currenScreenIs(LOG_SCREEN):
+            print("LOGGER")
+            if self._logger.enabled:
+                self._speaker.playFile("off.wav")
+                self._logger.disable()
+            else:
+                self._speaker.playFile("on.wav")
+                self._logger.enable()                
+            
+    def BKeyPressed(self):
+        #print("B")
         self.setScreen(self.nextScreen())
         self._timers.restartByName("Standby")
 
-    def onWrite(self, data):        
+    def onWrite(self, data):
         pass
 
     def onTickSecond(self):
-        pass
+        self.handleScreens()
 
     def onTickMinute(self):
-        pass
+        if self.checkFreeMem() < 20 * 1024:
+            gc.collect()
+            print("{:.2f} kb free after gc.collect()".format(freeMem/1024))
 
     def onTickHour(self):
         pass
@@ -847,7 +1113,6 @@ class PixelTrackerLite:
     def onStandby(self):
         if self._screenId != OFF_SCREEN:
             self.setScreen(OFF_SCREEN)
-        pass
 
     def onTick50Ms(self):
         if self._screenId != OFF_SCREEN:
@@ -856,48 +1121,26 @@ class PixelTrackerLite:
     def checkFreeMem(self):
         freeMem = gc.mem_free()
         print("{:.2f} kb free".format(freeMem/1024))
+        return freeMem
 
     def registerTimers(self):
         self._timers.addTimer("Second",TIMER_REPEAT, 1*SECONDS_MULT,self.onTickSecond,True)
-        self._timers.addTimer("Standby",TIMER_STOPWATCH, 5*SECONDS_MULT,self.onStandby,True)
+        self._timers.addTimer("Standby",TIMER_STOPWATCH, 30000*SECONDS_MULT,self.onStandby,True)
         self._timers.addTimer("Minute",TIMER_REPEAT, 1*MIN_MULT,self.onTickMinute,True)
         self._timers.addTimer("Hour",TIMER_REPEAT, 1*HOUR_MULT,self.onTickHour,True)
         self._timers.addTimer("50msec", TIMER_REPEAT, 100*MSEC_MULT, self.onTick50Ms, True)
 
-    def tests(self):
-        counter = 3
-        def onStandby():
-            print("stopped")
-            counter-=1
-            self._timers.restart(timerId)
-        timerId = self._timers.addTimer("Standby",TIMER_STOPWATCH, 1*SECONDS_MULT,onStandby,True)
-
-        while counter != 0:
-            self._timers.tick()
-
-        self._timers.restartByName("Standby")
-        counter = 3
-        while counter != 0:
-            self._timers.tick()
-
-        counter = 3
-        def newHandler():
-            print("new")
-            counter-=1
-            self._timers.restart(timerId)
-        self._timers.changeHandler(timerId, newHandler)
-        while counter != 0:
-            self._timers.tick()
-
     def run(self):
-        self.tests()
-        return
         self._speaker.playFile("on.wav")
         self.registerTimers()
         self.checkFreeMem()
         while True:
             self._buttons.read()
             self._gps.read()
+            self._buttons.read()
             self._ble.read()
+            self._buttons.read()
             self._microphone.read()
+            self._buttons.read()            
+            self._buttons.read()
             self._timers.tick()
