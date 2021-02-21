@@ -479,6 +479,7 @@ class TimerPool():
 
     def addTimer(self, name, type, setTime, onTime, enabled):
         crtTime = time.monotonic_ns()
+        id = len(self._name)
 
         self._name.append(name)
         self._type.append(type)
@@ -502,18 +503,43 @@ class TimerPool():
         self._delta[id] = 0
         self._enabled[id] = True
 
-    def tick(self):
+    def stop(self, id):
+        self._startTime[id] = time.monotonic_ns()
+        self._delta[id] = 0
+        self._enabled[id] = False
 
+    def resume(self,id):
+        self._enabled[id] = True
+
+    def restartByName(self, name):
+        self.restart(self.getTimerId(name))
+
+    def changeHandler(self, id, newHandler):
+        self.stop(id)
+        self._onTime[id] = newHandler
+        self.resume(id)
+
+    def changeTime(self, id, newTime):
+        self.stop(id)
+        self._time[id] = newTime
+        self.restart(id)
+
+    def tick(self):
         crtTime = time.monotonic_ns()
 
         for id in range(len(self._name)):
+
             self._delta[id] = crtTime - self._startTime[id]
 
+            self._leds.blink(3, RED)
+
             if self._delta[id] >= self._time[id]:
-                # print(self._delta[id])
+                
+                print(self._delta[id])
+                
                 if self._enabled[id]:
                     self._onTime[id]()
-                
+
                 # Repeat Timer
                 if self._type[id] == TIMER_REPEAT:
                     self._startTime[id] = time.monotonic_ns()
@@ -522,7 +548,8 @@ class TimerPool():
                 # StopWatch Timer
                 if self._type[id] == TIMER_STOPWATCH:
                     # Disable
-                    self._enabled = False
+                    self._delta[id] = 0
+                    self._enabled[id] = False
 
 import busio
 import adafruit_lis3dh
@@ -701,12 +728,7 @@ class PixelTrackerLite:
         self._screenId = 0
         self._timers = TimerPool()
 
-    def handleDisplay(self):
-        self._screenId += 1
-
-        if self._screenId>LAST_SCREEN:
-            self._screenId = 0
-
+    def handleScreens(self):
         if self._screenId == OFF_SCREEN:
             self.handleOffScreen()
         if self._screenId == GPS_SCREEN:
@@ -719,6 +741,17 @@ class PixelTrackerLite:
             self.handleAccScreen()
         if self._screenId == ALL_SCREEN:
             self.handleAllScreen()
+
+    def nextScreen(self):
+        self._screenId += 1
+        if self._screenId>LAST_SCREEN:
+            self._screenId = 0
+        return self._screenId
+
+    def setScreen(self, screenId):
+        self._screenId = screenId
+        self._speaker.playFile("on.wav")
+        self.handleScreens()
 
     def handleOffScreen(self):
         print("OFF")        
@@ -795,9 +828,9 @@ class PixelTrackerLite:
             self._accelerometer.enable()
 
     def BKeyPressed(self):        
-        #print("B")
-        self._speaker.playFile("on.wav")
-        self.handleDisplay()
+        #print("B")        
+        self.setScreen(self.nextScreen())
+        self._timers.restartByName("Standby")
 
     def onWrite(self, data):        
         pass
@@ -812,6 +845,8 @@ class PixelTrackerLite:
         pass
 
     def onStandby(self):
+        if self._screenId != OFF_SCREEN:
+            self.setScreen(OFF_SCREEN)
         pass
 
     def onTick50Ms(self):
@@ -823,13 +858,40 @@ class PixelTrackerLite:
         print("{:.2f} kb free".format(freeMem/1024))
 
     def registerTimers(self):
-        self._timers.addTimer("Every second",TIMER_REPEAT, 1*SECONDS_MULT,self.onTickSecond,True)
-        self._timers.addTimer("Standby Timer",TIMER_STOPWATCH, 30*SECONDS_MULT,self.onStandby,True)
-        self._timers.addTimer("Every minutes",TIMER_REPEAT, 1*MIN_MULT,self.onTickMinute,True)
-        self._timers.addTimer("Every hour",TIMER_REPEAT, 1*HOUR_MULT,self.onTickHour,True)
-        self._timers.addTimer("Every 50 msec", TIMER_REPEAT, 100*MSEC_MULT, self.onTick50Ms, True)
+        self._timers.addTimer("Second",TIMER_REPEAT, 1*SECONDS_MULT,self.onTickSecond,True)
+        self._timers.addTimer("Standby",TIMER_STOPWATCH, 5*SECONDS_MULT,self.onStandby,True)
+        self._timers.addTimer("Minute",TIMER_REPEAT, 1*MIN_MULT,self.onTickMinute,True)
+        self._timers.addTimer("Hour",TIMER_REPEAT, 1*HOUR_MULT,self.onTickHour,True)
+        self._timers.addTimer("50msec", TIMER_REPEAT, 100*MSEC_MULT, self.onTick50Ms, True)
+
+    def tests(self):
+        counter = 3
+        def onStandby():
+            print("stopped")
+            counter-=1
+            self._timers.restart(timerId)
+        timerId = self._timers.addTimer("Standby",TIMER_STOPWATCH, 1*SECONDS_MULT,onStandby,True)
+
+        while counter != 0:
+            self._timers.tick()
+
+        self._timers.restartByName("Standby")
+        counter = 3
+        while counter != 0:
+            self._timers.tick()
+
+        counter = 3
+        def newHandler():
+            print("new")
+            counter-=1
+            self._timers.restart(timerId)
+        self._timers.changeHandler(timerId, newHandler)
+        while counter != 0:
+            self._timers.tick()
 
     def run(self):
+        self.tests()
+        return
         self._speaker.playFile("on.wav")
         self.registerTimers()
         self.checkFreeMem()
