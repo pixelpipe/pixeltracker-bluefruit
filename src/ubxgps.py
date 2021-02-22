@@ -79,9 +79,12 @@ class UbxGps():
         self.GNSS_FIX_OK = False
         self.HEAD_VEH_VALID = False
         self.SAT_COUNT = False
+        self.ACCURATE = False
+        self.VALID_GPS_DATA = False
+        self.INVALID_UBX = False
         self._validationFlags = 0
         self._fixFlags = 0
-        self.disable()
+        self.disable()        
 
     def parseValidationFlags(self):
         validFlags = self._validationFlags
@@ -152,6 +155,12 @@ class UbxGps():
             self.SAT_COUNT = False
             self.DATA_ERROR['satcount'] = False
 
+        accuracy = struct.unpack_from("<LL", self._ubx,6 + 40)
+        horAcc = accuracy[0] / 1000
+        vertAcc = accuracy[1] / 1000
+        self.ACCURATE = horAcc < 100 and vertAcc < 100
+        print("Accuracy: {} {}".format(horAcc,vertAcc))
+
         # print(self.DATA_ERROR)
 
     def getSignalColor(self):
@@ -199,12 +208,23 @@ class UbxGps():
         packetLen = 6 + ubxLen + 2
         if len(self._ubx) != packetLen:
             self.DATA_ERROR = "xxxx"
+            self.INVALID_UBX = True
+            self.VALID_GPS_DATA = False
+            self.ACCURATE = False
+            self.FULLY_RESOLVED = False
+            self.SAT_COUNT = 0
         else:
             self._validationFlags = self._ubx[6 + 11]
             self._fixFlags = self._ubx[6 + 21]
-            self.parseValidationFlags()
             self._satelliteCount = self._ubx[6 + 23]
             self.parseValidationFlags()
+
+        print("ACCURATE" if self.ACCURATE else "SEARCHING LOCATION")
+        print("FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
+        print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >= 3 else "ACQUIRING SATELITES")
+        self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.SAT_COUNT and not self.INVALID_UBX
+        print("VALID GPS DATA" if self.VALID_GPS_DATA >= 3 else "!!!INVALID GPS DATA!!!")
+        return self.VALID_GPS_DATA
 
     def read(self):
         """Read Buffer from UART"""
@@ -245,10 +265,9 @@ class UbxGps():
 
     def toUbx(self):
         """Return the current UBX"""
-        return self._ubx
+        return self._ubx[:-2]
 
-    def toJson(self):
-        str = ""
+    def toJson(self, json):
         ubxMagic1 = self._ubx[0]
         ubxMagic2 = self._ubx[1]
         ubxClass = self._ubx[2]
@@ -259,28 +278,44 @@ class UbxGps():
             print("Broken UBX: Expected {}  got {}".format(
                 packetLen, len(self._ubx)))
             print(binascii.hexlify(self._ubx))
-            json = {
-                "type": "ubxNavPvt"
-            }
-            str = "{}".format(json)
-            return str
+            return {}
         if ubxClass == 0x01 or ubxId == 0x07:
-            x = struct.unpack_from(
-                '<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL', self._ubx, 6)
-            json = {
-                "type": "ubxNavPvt",
-                "valid": self.DATA_ERROR,
-                "numsv": x[13],
-                "lon": x[14], "lat": x[15], "alt": x[16], "hmsl": x[17], "hacc": x[18], "vacc": x[19],
-                "itow": x[0],
-                "year": x[1], "month": x[2], "day": x[3], "hour": x[4], "min": x[5], "sec": x[6],
-                "valid": x[7], "tacc": x[8], "nano": x[9], "fixtype": x[10], "flags": x[11], "flags2": x[12],
-                "veln": x[20], "vele": x[21], "veld": x[22], "speed": x[23],
-                "headmot": x[24], "sacc": x[25], "headacc": x[26], "pdop": x[27], "flags3": x[28], "rsvd1": x[29], "headveh": x[30],
-                "magdec": x[31], "magacc": x[22]
-            }
-            str = "{}".format(json)
-        return str
+            X = struct.unpack_from('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL', self._ubx, 6)
+            date_time_str = f'{X[3]}/{X[2]}/{X[1]} {X[4]}:{X[5]}:{X[6]}'
+            json["Time"] = date_time_str
+            json["SatCount"] = X[13]
+            json["Longitude"] = X[14] / 10000000
+            json["Latitude"] = X[15] / 10000000
+            json["Height"] = X[16] / 1000
+            json["HMSL"] = X[17]
+            json["HorAcc"] = X[18] / 1000
+            json["VertAcc"] = X[19] / 1000
+            json["ITOW"] = X[0]
+            json["Year"] = X[1]
+            json["Month"] = X[2]
+            json["Day"] = X[3]
+            json["Hour"] = X[4]
+            json["Min"] = X[5]
+            json["Sec"] = X[6]
+            json["Valid"] = X[7]
+            json["TimeAcc"] = X[8]
+            json["FractionOfSecond"] = X[9]
+            json["FixType"] = X[10]
+            json["FixStatusFlags"] = X[11]
+            json["AdditionalFlags2"] = X[12]
+            json["NEDVelocityNorth"] = X[20] * 3.6 / 1000
+            json["NEDVelocityEast"] = X[21] * 3.6 / 1000
+            json["NEDVelocityDown"] = X[22] * 3.6 / 1000
+            json["GroundSpeed"] = X[23] * 3.6 / 1000,
+            json["HeadingOfMotion"] = X[24]
+            json["SpeedAccuracy"] = X[25] * 3.6 / 1000
+            json["HeadAccuracy"] = X[26]
+            json["PositionDOP"] = X[27]
+            json["AdditionalFlags3"] = X[28]
+            json["Reserved1"] = X[29]
+            json["HeadingOfVehicle"] = X[30]
+            json["MagneticDeclination"] = X[31]
+            json["MagneticDeclinationAccuracy"] = X[22]
 
     def enable(self):
         self._enablePin.value = True
@@ -708,15 +743,12 @@ class Accelerometer():
         self._data = self._lis3dh.acceleration
 
     def toUbx(self):
-        return struct.pack("<BBBBHfff", 0xb5, 0x62, ord('S'), ord('A'), 4 * 3, self._data[0], self._data[1], self._data[2])
+        return struct.pack("<fff", self._data[0], self._data[1], self._data[2])
 
-    def toJson(self):
-        json = {
-            'accx': self._data[0],
-            'accy': self._data[1],
-            'accz': self._data[2]
-        }
-        return "{}".format(json)
+    def toJson(self,json):        
+        json['GravityX'] = self._data[0]
+        json['GravityY'] = self._data[1]
+        json['GravityZ'] = self._data[2]
 
     def enable(self):
         print("Accelerometer On")
@@ -790,15 +822,12 @@ class Microphone():
         self._level = self.log_scale(self.constrain(
             self._magnitude, self._input_floor, self._input_ceiling), self._input_floor, self._input_ceiling, 0, 255)
 
-    def toJson(self):
-        json = {
-            "magnitude": self._magnitude, "level": self._level
-            # , "samples" : self._samples
-        }
-        return "{}".format(json)
+    def toJson(self, json):
+        json["MicNoise"] = self._magnitude
+        json["MicLevel"] = self._level
 
     def toUbx(self):
-        return struct.pack("<BBBBHff", 0xb5, 0x62, ord('S'), ord('M'), 4 * 2, self._magnitude/100, self._level/100)
+        return struct.pack("<ff", self._magnitude/100, self._level/100)
 
     def enable(self):
         print("Microphone On")
@@ -844,14 +873,11 @@ class Sensors():
         self._data[1] = self.scale(self._light.value)
 
     def toUbx(self):
-        return struct.pack("<BBBBHff", 0xb5, 0x62, ord('S'), ord('S'), 4 * 2, self._data[0], self._data[1])
+        return struct.pack("<ff", self._data[0], self._data[1])
 
-    def toJson(self):
-        json = {
-            'temp': self._data[0],
-            'light': self._data[1]
-        }
-        return "{}".format(json)
+    def toJson(self, json):
+        json['Temperature'] = self._data[0]
+        json['Light'] =  self._data[1]
 
     def enable(self):
         print("Sensors On")
@@ -950,6 +976,8 @@ class PixelTrackerLite:
             self._leds.set(0, RED)
         if self._logger._diskFull:
             self._leds.set(0, ORANGE)
+        if self._gps.VALID_GPS_DATA:
+            self._leds.set(0, GREEN)
 
     def handleOffScreen(self):
         pass
@@ -996,45 +1024,36 @@ class PixelTrackerLite:
     def sendAllData(self):
         """Send All Data"""
 
-        if self._logger.enabled:
-            self._logger.append(self._gps.toUbx())
-
-        if self._sensors.enabled:
-            self._sensors.read()
+        self._sensors.read()
+        self._accelerometer.read()        
+        self._microphone.read()
 
         if self._logger.enabled:
-            self._logger.append(self._sensors.toUbx())
+            if not self._gps.VALID_GPS_DATA:
+                print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
+            else:
+                self._logger.append(self._gps.toUbx())
+                self._logger.append(self._accelerometer.toUbx())
+                self._logger.append(self._microphone.toUbx())            
+                self._logger.append(self._sensors.toUbx())
 
-        self._buttons.read()
-
-        if self._accelerometer.enabled:
-            self._accelerometer.read()
-
-        if self._logger.enabled:
-            self._logger.append(self._accelerometer.toUbx())
-
-        if self._microphone.enabled:
-            self._microphone.read()
-
-        if self._logger.enabled:
-            self._logger.append(self._microphone.toUbx())
-
-        self._buttons.read()
+        if FLAG_LOG_ON:
+            print(binascii.hexlify(self._gps.toUbx()))
+            print(binascii.hexlify(self._accelerometer.toUbx()))
+            print(binascii.hexlify(self._microphone.toUbx()))
+            print(binascii.hexlify(self._sensors.toUbx()))
 
         if self._ble.enabled:
             if self._ble.connected:
-                if self._gps.enabled:
-                    self._ble.write(self._gps.toJson())
-                    self._ble.write('\n')
-                if self._sensors.enabled:
-                    self._ble.write(self._sensors.toJson())
-                    self._ble.write('\n')
-                if self._accelerometer.enabled:
-                    self._ble.write(self._accelerometer.toJson())
-                    self._ble.write('\n')
-                if self._microphone.enabled:
-                    self._ble.write(self._microphone.toJson())
-                    self._ble.write('\n')
+                json = {}
+                self._gps.toJson(json)
+                self._accelerometer.toJson(json)
+                self._microphone.toJson(json)
+                self._sensors.toJson(json)
+                self._ble.write("{}".format(json))
+                self._ble.write('\n')
+                if FLAG_LOG_ON:
+                    print("{}".format(json))
 
     def onLogData(self, data, diskStatus):
         pass
