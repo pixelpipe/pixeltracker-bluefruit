@@ -15,7 +15,6 @@ import struct
 import busio
 import digitalio
 import binascii
-import utils
 import gc
 
 FLAG_LOG_ON = False
