@@ -240,8 +240,8 @@ class UbxParser():
 if __name__ == "__main__":
     import sys
     parser = UbxParser()
-    #packets = parser.read(sys.argv[1])
-    packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
+    packets = parser.read(sys.argv[1])
+    #packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
     csv = parser.toCsv(packets)
     print(csv)
 
