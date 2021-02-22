@@ -36,11 +36,8 @@ import struct
 import binascii
 
 _UBX_FORMAT = {
-    (0x01, 0x07) : "<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlHH",
-    (ord('S'),ord('A')) : "<fff",
-    (ord('S'),ord('M')) : "<ff",
-    (ord('S'),ord('S')) : "<ff"
-}
+    (0x01, 0x07) : "<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlHHBBHfffffff"
+    }
 
 _SEPARATOR = '\t'
 _NEWLINE = '\n'
@@ -63,15 +60,12 @@ class UbxParser():
         return bytes
 
 
-    def read(self, filename, AccurateDataOnly = True) -> []:
+    def read(self, filename) -> []:
         gotUbx = False
         lastKeyValue = 0
         json = {}
         data = []
         gotGps = False
-        gotAcc = False
-        gotMic = False
-        gotSensors = False
         try:               
             stream = open(filename, "rb")
         except Exception as err:
@@ -94,7 +88,7 @@ class UbxParser():
                 header = struct.unpack("<BBH",headerChunk)
                 classId = header[0]
                 msgId = header[1]
-                payloadLen = header[2]
+                payloadLen = header[2] + 4 + 12 + 8 + 8
                 payloadChunk = self._readBytes(stream,payloadLen)
                 if payloadChunk == None:
                     break
@@ -144,38 +138,35 @@ class UbxParser():
                         json["MagneticDeclination"] = X[31]
                         json["MagneticDeclinationAccuracy"] = X[22]
                         self.parseValidationFlags(json, X[7], X[11])
+                        #Extender UBX Data
+                        json["ExE"] = X[32]
+                        json["ExV"] = X[33]
+                        json["ExLen"] = X[34]
+                        json["GravityX"] = X[35]
+                        json["GravityY"] = X[36]
+                        json["GravityZ"] = X[37]
+                        json["MicNoise"] = X[38]
+                        json["MicLevel"] = X[39]
+                        json["Temperature"] = X[40]
+                        json["Light"] = X[41]
                         # fix date
                         #date_time_str = '18/09/19 01:55:19'
-                        date_time_str = f"18/09/19 01:55:19"
+                        #date_time_str = f"18/09/19 01:55:19"
                         #date_time_obj = datetime.strptime(date_time_str, '%d/%m/%y %H:%M:%S')
                         #print "The type of the date is now",  type(date_time_obj)
                         #print "The date is", date_time_obj
                         gotGps = True
-                    if classId == ord('S') and msgId == ord('A'):
-                        json["GravityX"] = X[0]
-                        json["GravityY"] = X[1]
-                        json["GravityZ"] = X[2]
-                        gotAcc = True
-                    if classId == ord('S') and msgId == ord('M'):
-                        json["MicNoise"] = X[0]
-                        json["MicLevel"] = X[1]
-                        gotMic = True
-                    if classId == ord('S') and msgId == ord('S'):
-                        json["Temperature"] = X[0]
-                        json["Light"] = X[1]
-                        gotSensors = True
-
-                    if gotGps and gotAcc and gotMic and gotSensors:
+                    if gotGps:
+                        """
                         if AccurateDataOnly:
                             accurate = json["HorAcc"] < 100 and json["VertAcc"] < 100                        
                             if json["FullyResolved"] and accurate:                                
                                 data.append(json)
                         else:
                             data.append(json)
+                        """
+                        data.append(json)
                         gotGps = False
-                        gotAcc = False
-                        gotMic = False
-                        gotSensors = False
                         json = {}
 
                     #print(json)
@@ -249,8 +240,8 @@ class UbxParser():
 if __name__ == "__main__":
     import sys
     parser = UbxParser()
-    packets = parser.read(sys.argv[1])
-    #packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\tests\\1.pubx")
+    #packets = parser.read(sys.argv[1])
+    packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
     csv = parser.toCsv(packets)
     print(csv)
 
