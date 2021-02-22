@@ -19,6 +19,8 @@ import utils
 import gc
 
 FLAG_LOG_ON = False
+JSON_TO_BLE = True
+LOG_INVALID_GPS_DATA = False
 
 GPS_LED = 0
 SEN_LED = 1
@@ -57,7 +59,6 @@ TIMER_REPEAT = 0
 TIMER_STOPWATCH = 1
 TIMER_MARKER = 2
 
-
 class UbxGps():
 
     def __init__(self, onDataHandler, bufferSize):
@@ -78,7 +79,8 @@ class UbxGps():
         self.VALID_DATE = False
         self.GNSS_FIX_OK = False
         self.HEAD_VEH_VALID = False
-        self.SAT_COUNT = False
+        self.TRIANGULATION_POSSIBLE = False
+        self.SAT_COUNT = 0
         self.ACCURATE = False
         self.VALID_GPS_DATA = False
         self.INVALID_UBX = False
@@ -149,17 +151,18 @@ class UbxGps():
             self.DATA_ERROR['gnssfixok'] = False
 
         if self._satelliteCount >= 3:
-            self.SAT_COUNT = True
-            self.DATA_ERROR['satcount'] = True
+            self.TRIANGULATION_POSSIBLE = True
+            self.DATA_ERROR['triangulation'] = True
         else:
-            self.SAT_COUNT = False
-            self.DATA_ERROR['satcount'] = False
+            self.TRIANGULATION_POSSIBLE = False
+            self.DATA_ERROR['triangulation'] = False
 
         accuracy = struct.unpack_from("<LL", self._ubx,6 + 40)
         horAcc = accuracy[0] / 1000
         vertAcc = accuracy[1] / 1000
         self.ACCURATE = horAcc < 100 and vertAcc < 100
-        print("Accuracy: {} {}".format(horAcc,vertAcc))
+        if FLAG_LOG_ON:
+            print("Accuracy: {} {}".format(horAcc,vertAcc))
 
         # print(self.DATA_ERROR)
 
@@ -223,10 +226,15 @@ class UbxGps():
             print("ACCURATE" if self.ACCURATE else "SEARCHING LOCATION")
             print("FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
             print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >= 3 else "ACQUIRING SATELITES")
-        self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.SAT_COUNT and not self.INVALID_UBX
-
+            
+        self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.TRIANGULATION_POSSIBLE == True and not self.INVALID_UBX
+        
+        if LOG_INVALID_GPS_DATA:
+            self.VALID_GPS_DATA = True
+            
         if FLAG_LOG_ON:
-            print("VALID GPS DATA" if self.VALID_GPS_DATA >= 3 else "!!!INVALID GPS DATA!!!")
+            print("VALID GPS DATA" if self.VALID_GPS_DATA else "!!!INVALID GPS DATA!!!")
+            
         return self.VALID_GPS_DATA
 
     def read(self):
@@ -532,14 +540,12 @@ class SimpleLogger:
         self._logs = logs
         self._crtLog = 0
         self._logSize = logSize
-        self._writable = True
+        self._writable = False
         self._diskFull = False
         self._loggedBytes = 0
         self._header = header
         self._diskState = "Ok"
-        self._debug = True
         self._enabled = False
-        self.testDiskAccess()
 
     def testDiskAccess(self):
         """Appends data to a file"""
@@ -547,6 +553,8 @@ class SimpleLogger:
             with open("test.txt", "w") as fp:
                 fp.write("ok")
                 fp.flush()
+                print("Disk OK")
+                self._writable = True
         except OSError as e:
             # cant write -> not writable
             if e.args[0] == 28:  # If the file system is full...
@@ -554,6 +562,7 @@ class SimpleLogger:
                 self._diskFull = True
             else:
                 self._diskState = "Disk protected"
+            print(self._diskState)                
             self._writable = False
 
     def checkNextFile(self):
@@ -581,11 +590,13 @@ class SimpleLogger:
         # write data
         if self._writable:
             with open(self._logFile, flag) as fp:
+                if FLAG_LOG_ON:
+                    print(f"Writing into {self._logFile} using {flag} mode")
                 fp.write(data)
                 fp.flush()
                 self._loggedBytes = self._loggedBytes + len(data)
         else:
-            if self._debug:
+            if FLAG_LOG_ON:
                 print("{} {} [{}/{}]".format(self._diskState,
                                              self._logFile, len(data), self._loggedBytes))
                 # print(data)
@@ -990,12 +1001,12 @@ class PixelTrackerLite:
             return
 
         self._leds.set(2, GREEN if self._gps.FULLY_RESOLVED else RED)
-        self._leds.set(3, GREEN if self._gps.SAT_COUNT else RED)
-        self._leds.set(4, GREEN if self._gps.HEAD_VEH_VALID else RED)
-        self._leds.set(5, GREEN if self._gps.GNSS_FIX_OK else RED)
-        self._leds.set(6, GREEN if self._gps.VALID_TIME else RED)
-        self._leds.set(7, GREEN if self._gps.VALID_DATE else RED)
-        self._leds.set(9, self._gps.getSignalColor())
+        self._leds.set(3, GREEN if self._gps.TRIANGULATION_POSSIBLE else RED)
+        #self._leds.set(4, GREEN if self._gps.HEAD_VEH_VALID else RED)
+        #self._leds.set(5, GREEN if self._gps.GNSS_FIX_OK else RED)
+        self._leds.set(4, GREEN if self._gps.VALID_TIME else RED)
+        self._leds.set(5, GREEN if self._gps.VALID_DATE else RED)
+        self._leds.set(6, self._gps.getSignalColor())
         # self._leds.allOff()
         #self._leds.set(3, self._gps.getSignalColor())
         # self._gps.switchTo115200Bauds()
@@ -1024,6 +1035,9 @@ class PixelTrackerLite:
         if not self._logger.enabled:
             return
 
+    def extendUbx(self, count):
+        return struct.pack("<BBH", ord('E'),ord('1'), count)
+
     def sendAllData(self):
         """Send All Data"""
 
@@ -1037,6 +1051,7 @@ class PixelTrackerLite:
                     print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
             else:
                 self._logger.append(self._gps.toUbx())
+                self._logger.append(self.extendUbx(12+8+8))
                 self._logger.append(self._accelerometer.toUbx())
                 self._logger.append(self._microphone.toUbx())            
                 self._logger.append(self._sensors.toUbx())
@@ -1049,15 +1064,21 @@ class PixelTrackerLite:
 
         if self._ble.enabled:
             if self._ble.connected:
-                json = {}
-                self._gps.toJson(json)
-                self._accelerometer.toJson(json)
-                self._microphone.toJson(json)
-                self._sensors.toJson(json)
-                self._ble.write("{}".format(json))
-                self._ble.write('\n')
-                if FLAG_LOG_ON:
-                    print("{}".format(json))
+                if JSON_TO_BLE:
+                    json = {}
+                    self._gps.toJson(json)
+                    self._accelerometer.toJson(json)
+                    self._microphone.toJson(json)
+                    self._sensors.toJson(json)
+                    self._ble.write("{}".format(json))
+                    self._ble.write('\n')
+                    if FLAG_LOG_ON:
+                        print("{}".format(json))
+                else:
+                    self._ble.write(self._gps.toUbx())                    
+                    self._ble.write(self._accelerometer.toUbx())
+                    self._ble.write(self._microphone.toUbx())
+                    self._ble.write(self._sensors.toUbx())
 
     def onLogData(self, data, diskStatus):
         pass
@@ -1192,6 +1213,7 @@ class PixelTrackerLite:
         self._speaker.playFile("on.wav")
         self.registerTimers()
         self.checkFreeMem()
+        self._logger.testDiskAccess()
         while True:
             self._buttons.read()
             self._gps.read()
