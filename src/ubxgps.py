@@ -18,7 +18,7 @@ import binascii
 import utils
 import gc
 
-FLAG_LOG_ON = True
+FLAG_LOG_ON = False
 
 GPS_LED = 0
 SEN_LED = 1
@@ -199,7 +199,7 @@ class UbxGps():
         self.sendUbx(
             "B5 62 06 09 0D 00 00 00 00 00 02 00 00 00 00 00 00 00 03 21 CE")
 
-    def getBasicGpsInfo(self):
+    def validateGpsData(self):
         ubxMagic1 = self._ubx[0]
         ubxMagic2 = self._ubx[1]
         ubxClass = self._ubx[2]
@@ -219,11 +219,14 @@ class UbxGps():
             self._satelliteCount = self._ubx[6 + 23]
             self.parseValidationFlags()
 
-        print("ACCURATE" if self.ACCURATE else "SEARCHING LOCATION")
-        print("FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
-        print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >= 3 else "ACQUIRING SATELITES")
+        if FLAG_LOG_ON:
+            print("ACCURATE" if self.ACCURATE else "SEARCHING LOCATION")
+            print("FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
+            print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >= 3 else "ACQUIRING SATELITES")
         self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.SAT_COUNT and not self.INVALID_UBX
-        print("VALID GPS DATA" if self.VALID_GPS_DATA >= 3 else "!!!INVALID GPS DATA!!!")
+
+        if FLAG_LOG_ON:
+            print("VALID GPS DATA" if self.VALID_GPS_DATA >= 3 else "!!!INVALID GPS DATA!!!")
         return self.VALID_GPS_DATA
 
     def read(self):
@@ -241,7 +244,7 @@ class UbxGps():
             self._ubx += self._buffer[:magicIndex]
 
             # Get Basic Info
-            self.getBasicGpsInfo()
+            self.validateGpsData()
 
             if self._onDataHandler:
                 self._onDataHandler()
@@ -1030,7 +1033,8 @@ class PixelTrackerLite:
 
         if self._logger.enabled:
             if not self._gps.VALID_GPS_DATA:
-                print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
+                if FLAG_LOG_ON:
+                    print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
             else:
                 self._logger.append(self._gps.toUbx())
                 self._logger.append(self._accelerometer.toUbx())
