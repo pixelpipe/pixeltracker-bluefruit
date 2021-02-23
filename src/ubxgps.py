@@ -20,6 +20,7 @@ import gc
 FLAG_LOG_ON = False
 JSON_TO_BLE = True
 LOG_INVALID_GPS_DATA = False
+SINGLE_BYTE_READS = True
 
 GPS_LED = 0
 SEN_LED = 1
@@ -63,6 +64,8 @@ class UbxGps():
     def __init__(self, onDataHandler, bufferSize):
         self._onDataHandler = onDataHandler
         self._buffer = bytearray(bufferSize)
+        self._oldByte = ''
+        self._newByte = ''
         self._ubx = b''
         self._uart = busio.UART(
             board.TX, board.RX, baudrate=9600, receiver_buffer_size=bufferSize)
@@ -238,7 +241,49 @@ class UbxGps():
         return self.VALID_GPS_DATA
 
     def read(self):
-        """Read Buffer from UART"""
+        """Read GPS message char by char"""
+
+        # if gps is disabled do not read fro UART
+        if not self._enablePin.value:
+            return
+
+        buffer = self._uart.read(1)
+
+        # No data no processing
+        if buffer == None:
+            return
+
+        # Empty buffer, no read
+        if len(buffer) == 0:
+            return
+        
+        # Got new byte
+        self._newByte = buffer[0]
+
+        # Check ubx magic
+        if self._oldByte == 0xb5 and self._newByte == 0x62:
+            # put the magic back in front
+            self._ubx = b'\xb5' + self._ubx
+            self._ubx = self._ubx[0:-1]
+            # Validate the data
+            self.validateGpsData()
+            # Call the data handler
+            if self._onDataHandler:
+                self._onDataHandler()
+            # Clean the ubx buffer
+            self._ubx = bytearray()            
+
+        # Append buffer to the ubx buffer
+        self._ubx += buffer
+
+        #print(f"{self._newByte:02X}",end='')
+
+        # make the new byte old
+        self._oldByte = self._newByte
+
+
+    def readBuffered(self):
+        """Read GPS message using buffer"""
 
         # if gps is disable do not read fro UART
         if not self._enablePin.value:
@@ -250,6 +295,8 @@ class UbxGps():
         if magicIndex >= 0:
             # move leftover into ubx and process it
             self._ubx += self._buffer[:magicIndex]
+
+            #print(binascii.hexlify(self._ubx))
 
             # Get Basic Info
             self.validateGpsData()
@@ -935,7 +982,10 @@ class PixelTrackerLite:
     """Main Loop"""
 
     def __init__(self):
-        self._gps = UbxGps(self.sendAllData, 50)
+        if SINGLE_BYTE_READS:
+            self._gps = UbxGps(self.sendAllData, 120)
+        else:
+            self._gps = UbxGps(self.sendAllData, 50)
         self._leds = Leds(10, 0.05)
         self._ble = Ble(self.onBleConnectionStateChanged,
                         self.onBleAdvertising, self.onWrite)
