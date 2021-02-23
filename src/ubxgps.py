@@ -85,7 +85,7 @@ class UbxGps():
         self.INVALID_UBX = False
         self._validationFlags = 0
         self._fixFlags = 0
-        self.disable()        
+        self.disable()
 
     def parseValidationFlags(self):
         validFlags = self._validationFlags
@@ -216,6 +216,7 @@ class UbxGps():
             self.FULLY_RESOLVED = False
             self.SAT_COUNT = 0
         else:
+            self.INVALID_UBX = False
             self._validationFlags = self._ubx[6 + 11]
             self._fixFlags = self._ubx[6 + 21]
             self._satelliteCount = self._ubx[6 + 23]
@@ -225,15 +226,15 @@ class UbxGps():
             print("ACCURATE" if self.ACCURATE else "SEARCHING LOCATION")
             print("FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
             print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >= 3 else "ACQUIRING SATELITES")
-            
+
         self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.TRIANGULATION_POSSIBLE == True and not self.INVALID_UBX
-        
+
         if LOG_INVALID_GPS_DATA:
             self.VALID_GPS_DATA = True
-            
+
         if FLAG_LOG_ON:
             print("VALID GPS DATA" if self.VALID_GPS_DATA else "!!!INVALID GPS DATA!!!")
-            
+
         return self.VALID_GPS_DATA
 
     def read(self):
@@ -290,8 +291,8 @@ class UbxGps():
             print(binascii.hexlify(self._ubx))
             return {}
         if ubxClass == 0x01 or ubxId == 0x07:
-            X = struct.unpack_from('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL', self._ubx, 6)
-            date_time_str = f'{X[3]}/{X[2]}/{X[1]} {X[4]}:{X[5]}:{X[6]}'
+            X = struct.unpack_from('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL', self._ubx, 6)            
+            date_time_str = f'{X[3]:02d}/{X[2]:02d}/{X[1]} {X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
             json["Time"] = date_time_str
             json["SatCount"] = X[13]
             json["Longitude"] = X[14] / 10000000
@@ -553,6 +554,9 @@ class SimpleLogger:
                 fp.write("ok")
                 fp.flush()
                 print("Disk OK")
+                self._diskState = "Disk OK"
+                if self._onLogData:
+                    self._onLogData("ok", self._diskState)
                 self._writable = True
         except OSError as e:
             # cant write -> not writable
@@ -561,7 +565,9 @@ class SimpleLogger:
                 self._diskFull = True
             else:
                 self._diskState = "Disk protected"
-            print(self._diskState)                
+            print(self._diskState)
+            if self._onLogData:
+                self._onLogData("ok", self._diskState)
             self._writable = False
 
     def checkNextFile(self):
@@ -581,6 +587,10 @@ class SimpleLogger:
             if self._writable:
                 # initialize the new file and write the header befor logging
                 self.writeData(self._header, 'w')
+                self._diskState = "New File : "+self._logFile
+                if self._onLogData:
+                    self._onLogData(self._header, self._diskState)
+
 
             # init the logged bytes to 0
             self._loggedBytes = 0
@@ -593,6 +603,9 @@ class SimpleLogger:
                     print(f"Writing into {self._logFile} using {flag} mode")
                 fp.write(data)
                 fp.flush()
+                self._diskState = "Disk Write"
+                if self._onLogData:
+                    self._onLogData(data, self._diskState)
                 self._loggedBytes = self._loggedBytes + len(data)
         else:
             if FLAG_LOG_ON:
@@ -600,9 +613,6 @@ class SimpleLogger:
                                              self._logFile, len(data), self._loggedBytes))
                 # print(data)
             self._loggedBytes = self._loggedBytes + len(data)
-
-        if self._onLogData:
-            self._onLogData(data, self._diskState)
 
     def append(self, data):
         """Appends data to a file"""
@@ -618,6 +628,8 @@ class SimpleLogger:
             else:
                 self._diskState = "Disk protected"
             self._writable = False
+            if self._onLogData:
+                self._onLogData(data, self._diskState)
 
     def appendLine(self, data):
         """Appends a line of data to a file"""
@@ -758,7 +770,7 @@ class Accelerometer():
     def toUbx(self):
         return struct.pack("<fff", self._data[0], self._data[1], self._data[2])
 
-    def toJson(self,json):        
+    def toJson(self,json):
         json['GravityX'] = self._data[0]
         json['GravityY'] = self._data[1]
         json['GravityZ'] = self._data[2]
@@ -989,8 +1001,6 @@ class PixelTrackerLite:
             self._leds.set(0, RED)
         if self._logger._diskFull:
             self._leds.set(0, ORANGE)
-        if self._gps.VALID_GPS_DATA:
-            self._leds.set(0, GREEN)
 
     def handleOffScreen(self):
         pass
@@ -998,14 +1008,14 @@ class PixelTrackerLite:
     def handleGpsScreen(self):
         if not self._gps.enabled:
             return
-
-        self._leds.set(2, GREEN if self._gps.FULLY_RESOLVED else RED)
-        self._leds.set(3, GREEN if self._gps.TRIANGULATION_POSSIBLE else RED)
-        #self._leds.set(4, GREEN if self._gps.HEAD_VEH_VALID else RED)
+        self._leds.set(2, BLACK if self._gps.FULLY_RESOLVED else RED)
+        self._leds.set(3, BLACK if self._gps.TRIANGULATION_POSSIBLE else RED)
+        self._leds.set(4, BLACK if self._gps.ACCURATE else RED)        
         #self._leds.set(5, GREEN if self._gps.GNSS_FIX_OK else RED)
-        self._leds.set(4, GREEN if self._gps.VALID_TIME else RED)
-        self._leds.set(5, GREEN if self._gps.VALID_DATE else RED)
-        self._leds.set(6, self._gps.getSignalColor())
+        #self._leds.set(5, BLACK if self._gps.VALID_TIME else RED)
+        #self._leds.set(6, BLACK if self._gps.VALID_DATE else RED)
+        self._leds.set(7, BLACK if self._gps.HEAD_VEH_VALID else RED)
+        self._leds.set(8, RED if self._gps.INVALID_UBX else BLACK)
         # self._leds.allOff()
         #self._leds.set(3, self._gps.getSignalColor())
         # self._gps.switchTo115200Bauds()
@@ -1041,19 +1051,21 @@ class PixelTrackerLite:
         """Send All Data"""
 
         self._sensors.read()
-        self._accelerometer.read()        
+        self._accelerometer.read()
         self._microphone.read()
 
         if self._logger.enabled:
-            if not self._gps.VALID_GPS_DATA:
-                if FLAG_LOG_ON:
-                    print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
-            else:
+            if self._gps.VALID_GPS_DATA:
                 self._logger.append(self._gps.toUbx())
                 self._logger.append(self.extendUbx(12+8+8))
                 self._logger.append(self._accelerometer.toUbx())
-                self._logger.append(self._microphone.toUbx())            
+                self._logger.append(self._microphone.toUbx())
                 self._logger.append(self._sensors.toUbx())
+                self._leds.blink(9, GREEN)                
+            else:
+                self._leds.blink(9, RED)
+                if FLAG_LOG_ON:
+                    print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
 
         if FLAG_LOG_ON:
             print(binascii.hexlify(self._gps.toUbx()))
@@ -1074,12 +1086,22 @@ class PixelTrackerLite:
                     if FLAG_LOG_ON:
                         print("{}".format(json))
                 else:
-                    self._ble.write(self._gps.toUbx())                    
+                    self._ble.write(self._gps.toUbx())
                     self._ble.write(self._accelerometer.toUbx())
                     self._ble.write(self._microphone.toUbx())
                     self._ble.write(self._sensors.toUbx())
 
     def onLogData(self, data, diskStatus):
+        """
+        if diskStatus == "Disk Write":
+            self._leds.blink(9, GREEN)
+        if diskStatus == "Disk Full":
+            self._leds.blink(9, ORANGE)
+        if diskStatus == "Disk Protected":
+            self._leds.blink(9, RED)
+        if diskStatus.startswith("New File"):
+            self._leds.blink(9, PINK)
+        """
         pass
 
     def onBleConnectionStateChanged(self):

@@ -102,7 +102,7 @@ class UbxParser():
                 else:
                     X = struct.unpack(payloadFormat, payloadChunk)
                     if classId == 0x01 and msgId == 0x07:
-                        date_time_str = f'{X[3]}/{X[2]}/{X[1]} {X[4]}:{X[5]}:{X[6]}'
+                        date_time_str = f'{X[3]:02d}/{X[2]:02d}/{X[1]} {X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
                         json["Time"] = date_time_str
                         json["SatCount"] = X[13]
                         json["Longitude"] = X[14] / 10000000
@@ -240,8 +240,8 @@ class UbxParser():
 if __name__ == "__main__":
     import sys
     parser = UbxParser()
-    packets = parser.read(sys.argv[1])
-    #packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
+    #packets = parser.read(sys.argv[1])
+    packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
     csv = parser.toCsv(packets)
     print(csv)
 

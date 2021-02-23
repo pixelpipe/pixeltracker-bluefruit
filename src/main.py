@@ -20,6 +20,8 @@ if __name__ == '__main__':
 
     pixeltracker = PixelTrackerLite()
 
+    GPS_LED = 4
+    
     # RUN
     if app_Debug:
         # DEBUG RUN
