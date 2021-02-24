@@ -18,9 +18,9 @@ import binascii
 import gc
 
 FLAG_LOG_ON = False
-JSON_TO_BLE = True
 LOG_INVALID_GPS_DATA = False
 SINGLE_BYTE_READS = True
+JSON_TO_BLE = True
 
 GPS_LED = 0
 SEN_LED = 1
@@ -435,6 +435,16 @@ class Leds():
         else:
             self._pixels[id] = (0, 0, 0)
         self._pixels.show()
+
+    def showPeak(self,led,level, mid, max):        
+        if level<=mid:
+            color = (0,level,0)
+        elif level>mid and level<=max:
+            color = (level,level,0)
+        elif level>max:
+            color = (level,0,0)
+        self.set(led, color)
+
 
 
 class Ble():
@@ -1097,21 +1107,29 @@ class PixelTrackerLite:
     def extendUbx(self, count):
         return struct.pack("<BBH", ord('E'),ord('1'), count)
 
+    def buildLogData(self):
+        logData = self._gps.toUbx()
+        logData += self.extendUbx(12+8+8)
+        logData += self._accelerometer.toUbx()
+        logData += self._microphone.toUbx()
+        logData += self._sensors.toUbx()
+        return logData
+
     def sendAllData(self):
         """Send All Data"""
 
         self._sensors.read()
         self._accelerometer.read()
-        self._microphone.read()
+
+        # when the microphone is not read in the main loop we need to read it here
+        if not SINGLE_BYTE_READS:
+            self._microphone.read()
 
         if self._logger.enabled:
             if self._gps.VALID_GPS_DATA:
-                self._logger.append(self._gps.toUbx())
-                self._logger.append(self.extendUbx(12+8+8))
-                self._logger.append(self._accelerometer.toUbx())
-                self._logger.append(self._microphone.toUbx())
-                self._logger.append(self._sensors.toUbx())
-                self._leds.blink(9, GREEN)                
+                self._logger.append(self.buildLogData())
+                if not self.currenScreenIs(OFF_SCREEN):
+                    self._leds.blink(9, GREEN)
             else:
                 self._leds.blink(9, RED)
                 if FLAG_LOG_ON:
@@ -1136,10 +1154,13 @@ class PixelTrackerLite:
                     if FLAG_LOG_ON:
                         print("{}".format(json))
                 else:
-                    self._ble.write(self._gps.toUbx())
-                    self._ble.write(self._accelerometer.toUbx())
-                    self._ble.write(self._microphone.toUbx())
-                    self._ble.write(self._sensors.toUbx())
+                    logData = self._gps.toUbx()
+                    logData += self.extendUbx(12+8+8)
+                    logData += self._accelerometer.toUbx()
+                    logData += self._microphone.toUbx()
+                    logData += self._sensors.toUbx()
+                    self._ble.write(self.buildLogData())
+                    self._leds.blink(9, BLUE)
 
     def onLogData(self, data, diskStatus):
         """
@@ -1287,11 +1308,13 @@ class PixelTrackerLite:
         self._logger.testDiskAccess()
         while True:
             self._buttons.read()
-            self._gps.read()
+            if SINGLE_BYTE_READS:
+                self._microphone.read()
+                if not self.currenScreenIs(OFF_SCREEN):
+                    self._leds.showPeak(5, self._microphone._level,80,150)
+                self._gps.read()
+            else:
+                self._gps.readBuffered()
             self._buttons.read()
             self._ble.read()
-            self._buttons.read()
-            self._microphone.read()
-            self._buttons.read()
-            self._buttons.read()
             self._timers.tick()
