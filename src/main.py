@@ -6,7 +6,7 @@ import time
 from ubxgps import PixelTrackerLite
 
 # GLOBALS
-app_Debug = True
+app_Debug = False
 
 # BOARD LED
 import digitalio

@@ -36,7 +36,7 @@ import struct
 import binascii
 
 _UBX_FORMAT = {
-    (0x01, 0x07) : "<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlHHBBHfffffff"
+    (0x01, 0x07) : "<LHBBBBBBLlBBBBllllLLlllllLLHBBBBBBlhHHBBHfffffff"
     }
 
 _SEPARATOR = '\t'
@@ -59,7 +59,21 @@ class UbxParser():
             return None
         return bytes
 
+    """
+    B5 62 01 07 5C 00
+    60 A7 43 0F E5 07 02 17 17 07 36 37 32 00 00 00
+    8C 84 FD FF 03 00 0A 04 86 16 00 05 B7 68 39 1D
+    CB 53 02 00 73 9A 01 00 A9 7B 00 00 04 4E 00 00
+    CC FC FF FF F8 F6 FF FF AF FE FF FF 95 09 00 00
+    A2 B5 B9 01 8F 0C 00 00 9C 2D 44 00 1E 0B 00 00
+    E0 4A 23 00 00 00 00 00 00 00 00 00
 
+    45-31
+    1C 00
+    88 61 04 C0 08 17 93 BF 54 06 23 41
+    D0 67 E0 3D 00 00 00 00 
+    80 0E C9 41 00 00 00 00 
+    """
     def read(self, filename) -> []:
         gotUbx = False
         lastKeyValue = 0
@@ -88,7 +102,7 @@ class UbxParser():
                 header = struct.unpack("<BBH",headerChunk)
                 classId = header[0]
                 msgId = header[1]
-                payloadLen = header[2] + 4 + 12 + 8 + 8
+                payloadLen = header[2] + 2 + 4 + 12 + 8 + 8
                 payloadChunk = self._readBytes(stream,payloadLen)
                 if payloadChunk == None:
                     break
@@ -104,17 +118,10 @@ class UbxParser():
                     if classId == 0x01 and msgId == 0x07:
                         date_time_str = f'{X[3]:02d}/{X[2]:02d}/{X[1]} {X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
                         json["Time"] = date_time_str
-                        json["SatCount"] = X[13]
-                        json["Longitude"] = X[14] / 10000000
-                        json["Latitude"] = X[15] / 10000000
-                        json["Height"] = X[16] / 1000
-                        json["HMSL"] = X[17]
-                        json["HorAcc"] = X[18] / 1000
-                        json["VertAcc"] = X[19] / 1000
                         json["ITOW"] = X[0]
                         json["Year"] = X[1]
                         json["Month"] = X[2]
-                        json["Day"] = X[3]
+                        json["Day"] = X[3]                        
                         json["Hour"] = X[4]
                         json["Min"] = X[5]
                         json["Sec"] = X[6]
@@ -124,31 +131,39 @@ class UbxParser():
                         json["FixType"] = X[10]
                         json["FixStatusFlags"] = X[11]
                         json["AdditionalFlags2"] = X[12]
-                        json["NEDVelocityNorth"] = X[20] * 3.6 / 1000
-                        json["NEDVelocityEast"] = X[21] * 3.6 / 1000
-                        json["NEDVelocityDown"] = X[22] * 3.6 / 1000
-                        json["GroundSpeed"] = X[23] * 3.6 / 1000,
-                        json["HeadingOfMotion"] = X[24]
-                        json["SpeedAccuracy"] = X[25] * 3.6 / 1000
-                        json["HeadAccuracy"] = X[26]
-                        json["PositionDOP"] = X[27]
+                        json["SatCount"] = X[13]
+                        json["Longitude"] = X[14] / 10000000
+                        json["Latitude"] = X[15] / 10000000
+                        json["Height"] = X[16] / 1000 # mm -> m
+                        json["HMSL"] = X[17] / 1000 # mm -> m
+                        json["HorAcc"] = X[18] / 1000  # mm -> m
+                        json["VertAcc"] = X[19] / 1000  # mm -> m
+                        json["NEDVelocityNorth"] = X[20] * 3.6 / 1000 # m/s -> km/h                  
+                        json["NEDVelocityEast"] = X[21] * 3.6 / 1000 # m/s -> km/h
+                        json["NEDVelocityDown"] = X[22] * 3.6 / 1000 # m/s -> km/h
+                        json["GroundSpeed"] = X[23] * 3.6 / 1000, # m/s -> km/h
+                        json["HeadingOfMotion"] = X[24] / 100000
+                        json["SpeedAccuracy"] = X[25] * 3.6 / 1000  # m/s -> km/h
+                        json["HeadAccuracy"] = X[26] / 100000
+                        json["PositionDOP"] = X[27] / 100
                         json["AdditionalFlags3"] = X[28]
-                        json["Reserved1"] = X[29]
-                        json["HeadingOfVehicle"] = X[30]
-                        json["MagneticDeclination"] = X[31]
-                        json["MagneticDeclinationAccuracy"] = X[22]
+                        json["Reserved1"] = (X[29],X[30],X[31],X[32],X[33])
+                        json["HeadingOfVehicle"] = X[34] / 100000
+                        json["MagneticDeclination"] = X[35] / 100
+                        json["MagneticDeclinationAccuracy"] = X[36] / 100
+                        json["Checksum"] = X[37]
                         self.parseValidationFlags(json, X[7], X[11])
                         #Extender UBX Data
-                        json["ExE"] = X[32]
-                        json["ExV"] = X[33]
-                        json["ExLen"] = X[34]
-                        json["GravityX"] = X[35]
-                        json["GravityY"] = X[36]
-                        json["GravityZ"] = X[37]
-                        json["MicNoise"] = X[38]
-                        json["MicLevel"] = X[39]
-                        json["Temperature"] = X[40]
-                        json["Light"] = X[41]
+                        json["ExtHead"] = X[38]
+                        json["ExtVer"] = X[39]
+                        json["ExLen"] = X[40]
+                        json["GravityX"] = X[41]
+                        json["GravityY"] = X[42]
+                        json["GravityZ"] = X[43]
+                        json["MicNoise"] = X[44]
+                        json["MicLevel"] = X[45]
+                        json["Temperature"] = X[46]
+                        json["Light"] = X[47]
                         # fix date
                         #date_time_str = '18/09/19 01:55:19'
                         #date_time_str = f"18/09/19 01:55:19"
@@ -244,6 +259,11 @@ if __name__ == "__main__":
     packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
     csv = parser.toCsv(packets)
     print(csv)
+
+    import pandas
+    data = pandas.DataFrame.from_dict(packets)    
+    print(list(data.columns.values))
+    print(data.loc[568])
 
     #Pandas example
     #gps = DataFrame.from_dict(parser.GpsData)

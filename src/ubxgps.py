@@ -59,6 +59,7 @@ TIMER_REPEAT = 0
 TIMER_STOPWATCH = 1
 TIMER_MARKER = 2
 
+
 class UbxGps():
 
     def __init__(self, onDataHandler, bufferSize):
@@ -159,22 +160,19 @@ class UbxGps():
             self.TRIANGULATION_POSSIBLE = False
             self.DATA_ERROR['triangulation'] = False
 
-        accuracy = struct.unpack_from("<LL", self._ubx,6 + 40)
+        accuracy = struct.unpack_from("<LL", self._ubx, 6 + 40)
         horAcc = accuracy[0] / 1000
         vertAcc = accuracy[1] / 1000
         self.ACCURATE = horAcc < 100 and vertAcc < 100
         if FLAG_LOG_ON:
-            print("Accuracy: {} {}".format(horAcc,vertAcc))
+            print("Accuracy: {} {}".format(horAcc, vertAcc))
 
         # print(self.DATA_ERROR)
 
     def getSignalColor(self):
         maxLevel = 255
-
         mult = self._satelliteCount * 20
-
         sLevel = mult if mult < maxLevel else maxLevel
-
         if self.FULLY_RESOLVED:
             return (0, sLevel, 0)
         else:
@@ -227,10 +225,13 @@ class UbxGps():
 
         if FLAG_LOG_ON:
             print("ACCURATE" if self.ACCURATE else "SEARCHING LOCATION")
-            print("FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
-            print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >= 3 else "ACQUIRING SATELITES")
+            print(
+                "FULLY RESOLVED" if self.FULLY_RESOLVED else "RESOLVING LOCATION AND TIME")
+            print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >=
+                  3 else "ACQUIRING SATELITES")
 
-        self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.TRIANGULATION_POSSIBLE == True and not self.INVALID_UBX
+        #self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.TRIANGULATION_POSSIBLE == True and not self.INVALID_UBX
+        self.VALID_GPS_DATA = self.VALID_TIME and not self.INVALID_UBX
 
         if LOG_INVALID_GPS_DATA:
             self.VALID_GPS_DATA = True
@@ -256,7 +257,7 @@ class UbxGps():
         # Empty buffer, no read
         if len(buffer) == 0:
             return
-        
+
         # Got new byte
         self._newByte = buffer[0]
 
@@ -265,22 +266,22 @@ class UbxGps():
             # put the magic back in front
             self._ubx = b'\xb5' + self._ubx
             self._ubx = self._ubx[0:-1]
+            
+            #print(f"{binascii.hexlify(self._ubx)}")
+
             # Validate the data
             self.validateGpsData()
             # Call the data handler
             if self._onDataHandler:
                 self._onDataHandler()
             # Clean the ubx buffer
-            self._ubx = bytearray()            
+            self._ubx = bytearray()
 
         # Append buffer to the ubx buffer
         self._ubx += buffer
 
-        #print(f"{self._newByte:02X}",end='')
-
         # make the new byte old
         self._oldByte = self._newByte
-
 
     def readBuffered(self):
         """Read GPS message using buffer"""
@@ -296,7 +297,7 @@ class UbxGps():
             # move leftover into ubx and process it
             self._ubx += self._buffer[:magicIndex]
 
-            #print(binascii.hexlify(self._ubx))
+            # print(binascii.hexlify(self._ubx))
 
             # Get Basic Info
             self.validateGpsData()
@@ -323,7 +324,7 @@ class UbxGps():
 
     def toUbx(self):
         """Return the current UBX"""
-        return self._ubx[:-2]
+        return self._ubx
 
     def toJson(self, json):
         ubxMagic1 = self._ubx[0]
@@ -338,7 +339,8 @@ class UbxGps():
             print(binascii.hexlify(self._ubx))
             return {}
         if ubxClass == 0x01 or ubxId == 0x07:
-            X = struct.unpack_from('<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhL', self._ubx, 6)            
+            X = struct.unpack_from(
+                '<LHBBBBBBLLBBBBllllLLlllllLLHBBBBBBlhHH', self._ubx, 6)
             date_time_str = f'{X[3]:02d}/{X[2]:02d}/{X[1]} {X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
             json["Time"] = date_time_str
             json["SatCount"] = X[13]
@@ -374,6 +376,7 @@ class UbxGps():
             json["HeadingOfVehicle"] = X[30]
             json["MagneticDeclination"] = X[31]
             json["MagneticDeclinationAccuracy"] = X[22]
+            json["Checksum"] = X[32]
 
     def enable(self):
         self._enablePin.value = True
@@ -436,15 +439,14 @@ class Leds():
             self._pixels[id] = (0, 0, 0)
         self._pixels.show()
 
-    def showPeak(self,led,level, mid, max):        
-        if level<=mid:
-            color = (0,level,0)
-        elif level>mid and level<=max:
-            color = (level,level,0)
-        elif level>max:
-            color = (level,0,0)
+    def showPeak(self, led, level, mid, max):
+        if level <= mid:
+            color = (0, level, 0)
+        elif level > mid and level <= max:
+            color = (level, level, 0)
+        elif level > max:
+            color = (level, 0, 0)
         self.set(led, color)
-
 
 
 class Ble():
@@ -516,7 +518,7 @@ class Ble():
     def enabled(self):
         return self._enabled
 
-
+# Imports for speaker
 try:
     from audiocore import WaveFile
 except ImportError:
@@ -647,7 +649,6 @@ class SimpleLogger:
                 self._diskState = "New File : "+self._logFile
                 if self._onLogData:
                     self._onLogData(self._header, self._diskState)
-
 
             # init the logged bytes to 0
             self._loggedBytes = 0
@@ -827,7 +828,7 @@ class Accelerometer():
     def toUbx(self):
         return struct.pack("<fff", self._data[0], self._data[1], self._data[2])
 
-    def toJson(self,json):
+    def toJson(self, json):
         json['GravityX'] = self._data[0]
         json['GravityY'] = self._data[1]
         json['GravityZ'] = self._data[2]
@@ -959,7 +960,7 @@ class Sensors():
 
     def toJson(self, json):
         json['Temperature'] = self._data[0]
-        json['Light'] =  self._data[1]
+        json['Light'] = self._data[1]
 
     def enable(self):
         print("Sensors On")
@@ -1070,7 +1071,7 @@ class PixelTrackerLite:
             return
         self._leds.set(2, BLACK if self._gps.FULLY_RESOLVED else RED)
         self._leds.set(3, BLACK if self._gps.TRIANGULATION_POSSIBLE else RED)
-        self._leds.set(4, BLACK if self._gps.ACCURATE else RED)        
+        self._leds.set(4, BLACK if self._gps.ACCURATE else RED)
         #self._leds.set(5, GREEN if self._gps.GNSS_FIX_OK else RED)
         #self._leds.set(5, BLACK if self._gps.VALID_TIME else RED)
         #self._leds.set(6, BLACK if self._gps.VALID_DATE else RED)
@@ -1105,7 +1106,7 @@ class PixelTrackerLite:
             return
 
     def extendUbx(self, count):
-        return struct.pack("<BBH", ord('E'),ord('1'), count)
+        return struct.pack("<BBH", ord('E'), ord('1'), count)
 
     def buildLogData(self):
         logData = self._gps.toUbx()
@@ -1311,7 +1312,7 @@ class PixelTrackerLite:
             if SINGLE_BYTE_READS:
                 self._microphone.read()
                 if not self.currenScreenIs(OFF_SCREEN):
-                    self._leds.showPeak(5, self._microphone._level,80,150)
+                    self._leds.showPeak(5, self._microphone._level, 80, 150)
                 self._gps.read()
             else:
                 self._gps.readBuffered()
