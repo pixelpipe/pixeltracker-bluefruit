@@ -230,8 +230,8 @@ class UbxGps():
             print("TRIANGULATION POSSIBLE" if self.SAT_COUNT >=
                   3 else "ACQUIRING SATELITES")
 
-        #self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.TRIANGULATION_POSSIBLE == True and not self.INVALID_UBX
-        self.VALID_GPS_DATA = self.VALID_TIME and not self.INVALID_UBX
+        self.VALID_GPS_DATA = self.ACCURATE and self.FULLY_RESOLVED and self.TRIANGULATION_POSSIBLE == True and not self.INVALID_UBX
+        #self.VALID_GPS_DATA = self.VALID_TIME and not self.INVALID_UBX
 
         if LOG_INVALID_GPS_DATA:
             self.VALID_GPS_DATA = True
