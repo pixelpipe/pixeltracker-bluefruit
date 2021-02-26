@@ -74,7 +74,7 @@ class UbxParser():
     D0 67 E0 3D 00 00 00 00 
     80 0E C9 41 00 00 00 00 
     """
-    def read(self, filename) -> []:
+    def read(self, filename, AccurateDataOnly = True) -> []:
         gotUbx = False
         lastKeyValue = 0
         json = {}
@@ -117,7 +117,10 @@ class UbxParser():
                     X = struct.unpack(payloadFormat, payloadChunk)
                     if classId == 0x01 and msgId == 0x07:
                         date_time_str = f'{X[3]:02d}/{X[2]:02d}/{X[1]} {X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
-                        json["Time"] = date_time_str
+                        time_str = f'{X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
+                        json["DateTime"] = date_time_str
+                        json["Time"] = time_str
+                        json["TSEC"] = X[6]+60*X[5]+60*60*X[4]
                         json["ITOW"] = X[0]
                         json["Year"] = X[1]
                         json["Month"] = X[2]
@@ -141,13 +144,17 @@ class UbxParser():
                         json["NEDVelocityNorth"] = X[20] * 3.6 / 1000 # m/s -> km/h                  
                         json["NEDVelocityEast"] = X[21] * 3.6 / 1000 # m/s -> km/h
                         json["NEDVelocityDown"] = X[22] * 3.6 / 1000 # m/s -> km/h
-                        json["GroundSpeed"] = X[23] * 3.6 / 1000, # m/s -> km/h
+                        json["GroundSpeed"] = X[23] * 3.6 / 1000 # m/s -> km/h                        
                         json["HeadingOfMotion"] = X[24] / 100000
                         json["SpeedAccuracy"] = X[25] * 3.6 / 1000  # m/s -> km/h
                         json["HeadAccuracy"] = X[26] / 100000
                         json["PositionDOP"] = X[27] / 100
                         json["AdditionalFlags3"] = X[28]
-                        json["Reserved1"] = (X[29],X[30],X[31],X[32],X[33])
+                        json["Rsvd1"] = X[29]
+                        json["Rsvd2"] = X[30]
+                        json["Rsvd3"] = X[31]
+                        json["Rsvd4"] = X[32]
+                        json["Rsvd5"] = X[33]
                         json["HeadingOfVehicle"] = X[34] / 100000
                         json["MagneticDeclination"] = X[35] / 100
                         json["MagneticDeclinationAccuracy"] = X[36] / 100
@@ -172,15 +179,13 @@ class UbxParser():
                         #print "The date is", date_time_obj
                         gotGps = True
                     if gotGps:
-                        """
                         if AccurateDataOnly:
                             accurate = json["HorAcc"] < 100 and json["VertAcc"] < 100                        
                             if json["FullyResolved"] and accurate:                                
                                 data.append(json)
                         else:
-                            data.append(json)
-                        """
-                        data.append(json)
+                            data.append(json)                    
+                        #data.append(json)
                         gotGps = False
                         json = {}
 
@@ -192,44 +197,44 @@ class UbxParser():
     def parseValidationFlags(self, jsonSource, validFlags, fixFlags):
             # print("{0:b}".format(flags))
             if validFlags & 0b00001000:
-                jsonSource['ValidMag'] = True
+                jsonSource['ValidMag'] = 1
             else:
-                jsonSource['ValidMag'] = False
+                jsonSource['ValidMag'] = 0
 
             if validFlags & 0b00000100:
-                jsonSource['FullyResolved'] = True
+                jsonSource['FullyResolved'] = 1
             else:
-                jsonSource['FullyResolved'] = False
+                jsonSource['FullyResolved'] = 0
 
             if validFlags & 0b00000010:
-                jsonSource['TimeResolved'] = True
+                jsonSource['TimeResolved'] = 1
             else:
-                jsonSource['TimeResolved'] = False
+                jsonSource['TimeResolved'] = 0
 
             if validFlags & 0b00000001:
-                jsonSource['DateResolved'] = True
+                jsonSource['DateResolved'] = 1
             else:
-                jsonSource['DateResolved'] = False
+                jsonSource['DateResolved'] = 0
 
             if fixFlags & 0b00100000:
-                jsonSource['HedingOfVehicleValid'] = True
+                jsonSource['HedingOfVehicleValid'] = 1
             else:
-                jsonSource['HedingOfVehicleValid'] = False
+                jsonSource['HedingOfVehicleValid'] = 0
 
             if fixFlags & 0b00010000:
-                jsonSource['PSMState'] = True
+                jsonSource['PSMState'] = 1
             else:
-                jsonSource['PSMState'] = False
+                jsonSource['PSMState'] = 0
 
             if fixFlags & 0b00000010:
-                jsonSource['DiffSol'] = True
+                jsonSource['DiffSol'] = 1
             else:
-                jsonSource['DiffSol'] = False
+                jsonSource['DiffSol'] = 0
 
             if fixFlags & 0b00000001:
-                jsonSource['GNSSFixOk'] = True
+                jsonSource['GNSSFixOk'] = 1
             else:
-                jsonSource['GNSSFixOk'] = False
+                jsonSource['GNSSFixOk'] = 0
 
     def toCsv(self, data):
         """Converts an array of dictionaries into CSV"""
@@ -247,7 +252,7 @@ class UbxParser():
             else:
                 values = json.values()
                 for value in values:
-                    str += "{}".format(value) + _SEPARATOR
+                    str += '"{}"'.format(value) + _SEPARATOR
                 str = str[:-1]
                 str += _NEWLINE
         return str
@@ -255,16 +260,15 @@ class UbxParser():
 if __name__ == "__main__":
     import sys
     parser = UbxParser()
-    #packets = parser.read(sys.argv[1])
-    packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
+    packets = parser.read(sys.argv[1])
+    #packets = parser.read("C:\\projects\\pixeltracker\\utils\\ubxparser\\ubxparser\\0.pubx")
     csv = parser.toCsv(packets)
     print(csv)
 
-    import pandas
-    data = pandas.DataFrame.from_dict(packets)    
-    print(list(data.columns.values))
-    print(data.loc[568])
-
+    #import pandas
+    #data = pandas.DataFrame.from_dict(packets)    
+    #print(list(data.columns.values))
+    #print(data.loc[0])
     #Pandas example
     #gps = DataFrame.from_dict(parser.GpsData)
     #print(gps)
