@@ -1,5 +1,6 @@
 """ Pixeltracker Library """
 import time
+import supervisor
 import board
 import busio
 import analogio
@@ -21,6 +22,7 @@ from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
 DEBUG = False
 JSON_TO_BLE = True
 SIM_VALID_GPS_DATA = False
+ON_BAT = False
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -31,6 +33,10 @@ WHITE = (255, 255, 255)
 PINK = (255, 0, 100)
 ORANGE = (230, 80, 0)
 BLACK = (0, 0, 0)
+
+def display(text):
+    if supervisor.runtime.serial_connected:
+        print(text)
 
 class UbxGps():
     """ GPS UBX Class """
@@ -71,7 +77,7 @@ class UbxGps():
             self._ubx = self._ubx[0:-1]
             if SIM_VALID_GPS_DATA:
                 self._ubx = self.generateSimulatedGpsUbx()
-            # print(f"{binascii.hexlify(self._ubx)}")
+            # display(f"{binascii.hexlify(self._ubx)}")
             # Validate the Ubx packet
             self.parseUbx()            
             # Call the data handler if the ubx packet is valid
@@ -90,22 +96,22 @@ class UbxGps():
         accurate = self._validationResults["pdop"] < 4
         timeok = self._validationResults["validdate"] # and self._validationResults["validtime"] and self._validationResults["fullyresolved"]
         if DEBUG:
-            print("Valid Date, Time and FullyResolved")
-            print(self._validationResults["validdate"])
-            print(self._validationResults["validtime"])
-            print(self._validationResults["fullyresolved"])
+            display("Valid Date, Time and FullyResolved")
+            display(self._validationResults["validdate"])
+            display(self._validationResults["validtime"])
+            display(self._validationResults["fullyresolved"])
         if timeok and self._justStarted:
             self._changeFileName = True
         validcoordinates = self._validationResults["validllh"]
 
         if DEBUG:
-            print("Enabled, ValidClassId, ValidPayload, Accurate, TimeOK and ValidCoordinates")
-            print(self.enabled)
-            print(self._validClassId)
-            print(self._validPayload)
-            print(accurate)
-            print(timeok)
-            print(validcoordinates)
+            display("Enabled, ValidClassId, ValidPayload, Accurate, TimeOK and ValidCoordinates")
+            display(self.enabled)
+            display(self._validClassId)
+            display(self._validPayload)
+            display(accurate)
+            display(timeok)
+            display(validcoordinates)
 
         return self.enabled and self._validClassId and self._validPayload and accurate and timeok and validcoordinates
 
@@ -113,7 +119,7 @@ class UbxGps():
         json = {}
         self.toJson(json)
         if DEBUG:
-            print(json)
+            display(json)
         return json["timestamp"]
 
     def parseUbx(self):
@@ -132,11 +138,11 @@ class UbxGps():
         else:
             self._validClassId = False
             if DEBUG:
-                print("Unknown ClassId")
+                display("Unknown ClassId")
         self._validPayload = len(self._ubx) == calculatedUbxLength
         if DEBUG:
             if not self._validPayload:
-                print("Invalid Payload. Expected {}. Calculated {}".format(len(self._ubx), calculatedUbxLength))
+                display("Invalid Payload. Expected {}. Calculated {}".format(len(self._ubx), calculatedUbxLength))
 
     def parseValidationInfo(self):
         vflags = self._ubx[6 + 11]
@@ -224,10 +230,10 @@ class UbxGps():
 
     def convertHexDumpToBytearray(self, hexString):
         data = binascii.unhexlify(hexString.replace(' ', ''))
-        print(data)
+        display(data)
         """
         for i in range(len(data)):
-            print("{:02X} ".format(data[i]), end='')
+            display("{:02X} ".format(data[i]), end='')
         """
         return data
 
@@ -254,7 +260,7 @@ class UbxGps():
     def enable(self):
         self._enablePin.value = True
         self._justStarted = True
-        print("GPS ON" if self._enablePin.value else "GPS OFF")
+        display("GPS ON" if self._enablePin.value else "GPS OFF")
 
     def disable(self):
         self._enablePin.value = False
@@ -303,8 +309,8 @@ class Leds():
         self._pixels.show()
 
     def togle(self, id, color):
-        toggles[id] = not toggles[id]
-        if toggles[id]:
+        self.toggles[id] = not self.toggles[id]
+        if self.toggles[id]:
             self._pixels[id] = color
         else:
             self._pixels[id] = (0, 0, 0)
@@ -343,15 +349,15 @@ class Ble():
         if not self._ble.connected:
             self.stopAdvertising()
         self._ble.start_advertising(self._advertisement)
-        print("Start Phone App and connect")
-        print("Started Advertising to BLE devices")
+        display("Start Phone App and connect")
+        display("Started Advertising to BLE devices")
         if self._onAdvertising:
             self._onAdvertising()
         self._isAdvertising = True
 
     def stopAdvertising(self):
         # if self._ble.connected:
-        print("Stopped Advertising")
+        display("Stopped Advertising")
         self._ble.stop_advertising()
         self._isAdvertising = False
 
@@ -467,7 +473,7 @@ class SimpleLogger:
             with open("test.txt", "w") as fp:
                 fp.write("ok")
                 fp.flush()
-                print("Disk OK")
+                display("Disk OK")
                 self._diskState = "Disk OK"
                 if self._onLogData:
                     self._onLogData("ok", self._diskState)
@@ -479,14 +485,14 @@ class SimpleLogger:
                 self._diskFull = True
             else:
                 self._diskState = "Disk protected"
-            print(self._diskState)
+            display(self._diskState)
             if self._onLogData:
                 self._onLogData("ok", self._diskState)
             self._writable = False
 
     def changeLogFileName(self,timestamp):
         if self._debug:
-            print("Changing log filename to {}".format(timestamp))
+            display("Changing log filename to {}".format(timestamp))
         self._logFile = "{}.pubx".format(timestamp)
 
         if self._writable:
@@ -527,7 +533,7 @@ class SimpleLogger:
         if self._writable:
             with open(self._logFile, flag) as fp:
                 if self._debug:
-                    print(f"Writing into {self._logFile} using {flag} mode")
+                    display(f"Writing into {self._logFile} using {flag} mode")
                 fp.write(data)
                 fp.flush()
                 self._diskState = "Disk Write"
@@ -536,9 +542,9 @@ class SimpleLogger:
                 self._loggedBytes = self._loggedBytes + len(data)
         else:
             if self._debug:
-                print("{} {} [{}/{}]".format(self._diskState,
+                display("{} {} [{}/{}]".format(self._diskState,
                                              self._logFile, len(data), self._loggedBytes))
-                # print(data)
+                # display(data)
             self._loggedBytes = self._loggedBytes + len(data)
 
     def append(self, data):
@@ -563,11 +569,11 @@ class SimpleLogger:
         self.append(data+"\n")
 
     def enable(self):
-        print("Logging On")
+        display("Logging On")
         self._enabled = True
 
     def disable(self):
-        print("Logging Off")
+        display("Logging Off")
         self._enabled = False
 
     def toggle(self):
@@ -621,11 +627,11 @@ class Accelerometer():
         json['gravityz'] = self._data[2]
 
     def enable(self):
-        print("Accelerometer On")
+        display("Accelerometer On")
         self._enabled = True
 
     def disable(self):
-        print("Accelerometer Off")
+        display("Accelerometer Off")
         self._enabled = False
 
     def toggle(self):
@@ -661,9 +667,11 @@ class Microphone():
         self._SCALE_EXPONENT = math.pow(10, 2 * -0.1)  # curve is 2
         self._mic = audiobusio.PDMIn(
             board.MICROPHONE_CLOCK, board.MICROPHONE_DATA, sample_rate=16000, bit_depth=16)
+
         # Record an initial sample to calibrate. Assume it's quiet when we start.
         self._samples = array.array('H', [0] * self._NUM_SAMPLES)
         self._mic.record(self._samples, len(self._samples))
+
         # Set lowest level to expect, plus a little.
         self._input_floor = self.normalized_rms(self._samples) + 10
         self._input_ceiling = self._input_floor + 500
@@ -713,11 +721,11 @@ class Microphone():
         return struct.pack("<ff", self._magnitude/100, self._level/100)
 
     def enable(self):
-        print("Microphone On")
+        display("Microphone On")
         self._enabled = True
 
     def disable(self):
-        print("Microphone Off")
+        display("Microphone Off")
         self._enabled = False
 
     def toggle(self):
@@ -761,11 +769,11 @@ class Sensors():
         json['light'] = self._data[1]
 
     def enable(self):
-        print("Sensors On")
+        display("Sensors On")
         self._enabled = True
 
     def disable(self):
-        print("Sensors Off")
+        display("Sensors Off")
         self._enabled = False
 
     def toggle(self):
@@ -801,16 +809,16 @@ class Pixeltracker():
         self._logger = SimpleLogger(self.onLogData, b'UBX', 10, 128 * 1024)
         self._speaker.playFile("on.wav")
         self.checkFreeMem()
-        self._logger.testDiskAccess()
+        self._logger.testDiskAccess()        
+        self._LOGGER_LED = 9
+        self._BLE_LED = 8
+        self._DISKLED = 0
+        self._GPS_DATA_COUNTER_IN_SECONDS = 0
+        self._LOG_INTERVAL_IN_SECONDS = 1
+        self._SCREEN = 0
+        self._MAXSCREEN = 4
 
-    def mainLoop(self):
-        self._buttons.read()
-        self._microphone.read()
-        self._leds.showPeak(5, self._microphone._level, 80, 150)
-        self._gps.read()
-        self._buttons.read()
-        self._ble.read()
-        
+       
     def extendUbx(self, count):
         return struct.pack("<BBH", ord('E'), ord('1'), count)
 
@@ -822,30 +830,51 @@ class Pixeltracker():
         logData += self._sensors.toUbx()
         return logData
 
+    def ledStatus(self):
+        if self._ble.connected:
+            self._leds.blink(self._BLE_LED, GREEN)
+        else:
+            if self._ble.isAdvertising:
+                self._leds.blink(self._BLE_LED, BLUE)
+            else:
+                self._leds.blink(self._BLE_LED, BLACK)
+
+        if not self._logger._writable:
+            self._leds.blink(self._DISKLED, RED)
+
     def sendAllData(self):
         """Send All Data"""
+        self._GPS_DATA_COUNTER_IN_SECONDS += 1
+
+        if self._GPS_DATA_COUNTER_IN_SECONDS % self._LOG_INTERVAL_IN_SECONDS != 0:
+            if DEBUG:
+                display("Skipping Data because of _LOG_INTERVAL_IN_SECONDS")
+            return
+
         self._sensors.read()
         self._accelerometer.read()
+
         # when the microphone is not read in the main loop we need to read it here
         if self._logger.enabled:
             if self._gps.readyForLogging():
-
                 if self._gps._changeFileName and self._gps._justStarted:
                     self._logger.changeLogFileName(self._gps.getTimeStamp())
                     self._gps._changeFileName = False
                     self._gps._justStarted = False
                 self._logger.append(self.buildLogData())
                 #if not self.currenScreenIs(OFF_SCREEN):
-                self._leds.blink(9, GREEN)
+                self._leds.blink(self._LOGGER_LED, GREEN)
             else:
-                self._leds.blink(9, RED)
+                self._leds.blink(self._LOGGER_LED, RED)
                 if DEBUG:
-                    print("NOT LOGGING BECAUSE OF INVALID GPS DATA")
+                    display("NOT LOGGING BECAUSE OF INVALID GPS DATA")
+
         if DEBUG:
-            print(binascii.hexlify(self._gps.toUbx()))
-            print(binascii.hexlify(self._accelerometer.toUbx()))
-            print(binascii.hexlify(self._microphone.toUbx()))
-            print(binascii.hexlify(self._sensors.toUbx()))
+            display(binascii.hexlify(self._gps.toUbx()))
+            display(binascii.hexlify(self._accelerometer.toUbx()))
+            display(binascii.hexlify(self._microphone.toUbx()))
+            display(binascii.hexlify(self._sensors.toUbx()))
+
         if self._ble.enabled:
             if self._ble.connected:
                 if JSON_TO_BLE:
@@ -857,7 +886,7 @@ class Pixeltracker():
                     self._ble.write("{}".format(json))
                     self._ble.write('\n')
                     if DEBUG:
-                        print("{}".format(json))
+                        display("{}".format(json))
                 else:
                     logData = self._gps.toUbx()
                     logData += self.extendUbx(12+8+8)
@@ -865,15 +894,17 @@ class Pixeltracker():
                     logData += self._microphone.toUbx()
                     logData += self._sensors.toUbx()
                     self._ble.write(self.buildLogData())
-                    self._leds.blink(9, BLUE)
+                    self._leds.blink(self._LOGGER_LED, BLUE)
+        self.ledStatus()
 
     def onBleConnectionStateChanged(self):
         if self._ble.connected:
-            print("BLE Client connected")
+            display("BLE Client connected")            
         else:
-            print("BLE Client disconnected")
+            display("BLE Client disconnected")
+            self._ble.startAdvertising()
 
-    def onBleAdvertising(self):
+    def onBleAdvertising(self):        
         pass
 
     def onWrite(self, data):
@@ -893,7 +924,7 @@ class Pixeltracker():
         pass
 
     def AKeyPressed(self):
-        # print("A")
+        # display("A")
         if self._gps.enabled:
             self._speaker.playFile("off.wav")
             self._ble.stopAdvertising()
@@ -914,14 +945,26 @@ class Pixeltracker():
             self._logger.enable()
 
     def BKeyPressed(self):
-        # print("B")
-        self.setScreen(self.nextScreen())
-        self._timers.restartByName("Standby")
+        # display("B")
+        self._SCREEN += 1
+        if self._SCREEN > self._MAXSCREEN:
+            self._SCREEN = 0
+        pass
 
     def checkFreeMem(self):
         freeMem = gc.mem_free()
-        print("{:.2f} kb free".format(freeMem/1024))
-        return freeMem        
+        display("{:.2f} kb free".format(freeMem/1024))
+        return freeMem
+
+    def mainLoop(self):
+        self._buttons.read()
+        self._microphone.read()
+        self._leds.showPeak(5, self._microphone._level, 80, 150)
+        self._gps.read()
+        self._buttons.read()
+        self._ble.read()
+        if self._SCREEN>0:
+            self._leds.blink(self._SCREEN, CYAN)            
 
 class PixeltrackerApp():
     def __init__(self):
@@ -933,6 +976,8 @@ class PixeltrackerApp():
 
 # Main Loop
 def main():
+    ON_BAT = not supervisor.runtime.serial_connected
+
     boardLED = digitalio.DigitalInOut(board.D13)
     boardLED.switch_to_output()
     pixeltrackerApp = PixeltrackerApp()
@@ -942,10 +987,11 @@ def main():
         pixeltrackerApp.run()
     except Exception as e:
         boardLED.value = True
-        print(e)
+        display(e)
         time.sleep(1)
         boardLED.value = False
         time.sleep(1)
     """
+
 if __name__ == '__main__':
     main()
