@@ -118,59 +118,59 @@ class UbxParser():
                     if classId == 0x01 and msgId == 0x07:
                         date_time_str = f'{X[3]:02d}/{X[2]:02d}/{X[1]} {X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
                         time_str = f'{X[4]:02d}:{X[5]:02d}:{X[6]:02d}'
-                        json["DateTime"] = date_time_str
-                        json["Time"] = time_str
-                        json["TSEC"] = X[6]+60*X[5]+60*60*X[4]
-                        json["ITOW"] = X[0]
-                        json["Year"] = X[1]
-                        json["Month"] = X[2]
-                        json["Day"] = X[3]                        
-                        json["Hour"] = X[4]
-                        json["Min"] = X[5]
-                        json["Sec"] = X[6]
-                        json["Valid"] = X[7]
-                        json["TimeAcc"] = X[8]
-                        json["FractionOfSecond"] = X[9]
-                        json["FixType"] = X[10]
-                        json["FixStatusFlags"] = X[11]
-                        json["AdditionalFlags2"] = X[12]
-                        json["SatCount"] = X[13]
-                        json["Longitude"] = X[14] / 10000000
-                        json["Latitude"] = X[15] / 10000000
-                        json["Height"] = X[16] / 1000 # mm -> m
-                        json["HMSL"] = X[17] / 1000 # mm -> m
-                        json["HorAcc"] = X[18] / 1000  # mm -> m
-                        json["VertAcc"] = X[19] / 1000  # mm -> m
-                        json["NEDVelocityNorth"] = X[20] * 3.6 / 1000 # m/s -> km/h                  
-                        json["NEDVelocityEast"] = X[21] * 3.6 / 1000 # m/s -> km/h
-                        json["NEDVelocityDown"] = X[22] * 3.6 / 1000 # m/s -> km/h
-                        json["GroundSpeed"] = X[23] * 3.6 / 1000 # m/s -> km/h                        
-                        json["HeadingOfMotion"] = X[24] / 100000
-                        json["SpeedAccuracy"] = X[25] * 3.6 / 1000  # m/s -> km/h
-                        json["HeadAccuracy"] = X[26] / 100000
-                        json["PositionDOP"] = X[27] / 100
-                        json["AdditionalFlags3"] = X[28]
-                        json["Rsvd1"] = X[29]
-                        json["Rsvd2"] = X[30]
-                        json["Rsvd3"] = X[31]
-                        json["Rsvd4"] = X[32]
-                        json["Rsvd5"] = X[33]
-                        json["HeadingOfVehicle"] = X[34] / 100000
-                        json["MagneticDeclination"] = X[35] / 100
-                        json["MagneticDeclinationAccuracy"] = X[36] / 100
-                        json["Checksum"] = X[37]
+                        json["datetime"] = date_time_str
+                        json["time"] = time_str
+                        json["tsec"] = X[6]+60*X[5]+60*60*X[4]
+                        json["itow"] = X[0]
+                        json["year"] = X[1]
+                        json["month"] = X[2]
+                        json["day"] = X[3]                        
+                        json["hour"] = X[4]
+                        json["min"] = X[5]
+                        json["sec"] = X[6]
+                        json["validflags"] = X[7]
+                        json["timeacc"] = X[8]
+                        json["nanoseconds"] = X[9]
+                        json["fixtype"] = X[10]
+                        json["fixstatusflags"] = X[11]
+                        json["additionalflags2"] = X[12]
+                        json["satcount"] = X[13]
+                        json["longitude"] = X[14] / 10000000
+                        json["latitude"] = X[15] / 10000000
+                        json["height"] = X[16] / 1000 # mm -> m
+                        json["hmsl"] = X[17] / 1000 # mm -> m
+                        json["horacc"] = X[18] / 1000  # mm -> m
+                        json["veracc"] = X[19] / 1000  # mm -> m
+                        json["nedvelocitynorth"] = X[20] * 3.6 / 1000 # m/s -> km/h                  
+                        json["nedvelocityeast"] = X[21] * 3.6 / 1000 # m/s -> km/h
+                        json["nedvelocitydown"] = X[22] * 3.6 / 1000 # m/s -> km/h
+                        json["groundspeed"] = X[23] * 3.6 / 1000 # m/s -> km/h                        
+                        json["headingofmotion"] = X[24] / 100000
+                        json["speedaccuracy"] = X[25] * 3.6 / 1000  # m/s -> km/h
+                        json["headaccuracy"] = X[26] / 100000
+                        json["positiondop"] = X[27] / 100
+                        json["additionalflags3"] = X[28]
+                        json["rsvd1"] = X[29]
+                        json["rsvd2"] = X[30]
+                        json["rsvd3"] = X[31]
+                        json["rsvd4"] = X[32]
+                        json["rsvd5"] = X[33]
+                        json["headingofveficle"] = X[34] / 100000
+                        json["magneticdeclination"] = X[35] / 100
+                        json["magneticdeclinationacc"] = X[36] / 100
+                        json["checksum"] = X[37]
                         self.parseValidationFlags(json, X[7], X[11])
                         #Extender UBX Data
-                        json["ExtHead"] = X[38]
-                        json["ExtVer"] = X[39]
-                        json["ExLen"] = X[40]
-                        json["GravityX"] = X[41]
-                        json["GravityY"] = X[42]
-                        json["GravityZ"] = X[43]
-                        json["MicNoise"] = X[44]
-                        json["MicLevel"] = X[45]
-                        json["Temperature"] = X[46]
-                        json["Light"] = X[47]
+                        json["exthead"] = X[38]
+                        json["extver"] = X[39]
+                        json["exlen"] = X[40]
+                        json["gravityx"] = X[41]
+                        json["gravityy"] = X[42]
+                        json["gravityz"] = X[43]
+                        json["micnoise"] = X[44]
+                        json["miclevel"] = X[45]
+                        json["temperature"] = X[46]
+                        json["light"] = X[47]
                         # fix date
                         #date_time_str = '18/09/19 01:55:19'
                         #date_time_str = f"18/09/19 01:55:19"
@@ -180,8 +180,8 @@ class UbxParser():
                         gotGps = True
                     if gotGps:
                         if AccurateDataOnly:
-                            accurate = json["HorAcc"] < 100 and json["VertAcc"] < 100                        
-                            if json["FullyResolved"] and accurate:                                
+                            accurate = json["horacc"] < 100 and json["veracc"] < 100                        
+                            if json["fullyresolved"] and accurate:                                
                                 data.append(json)
                         else:
                             data.append(json)                    
@@ -197,44 +197,44 @@ class UbxParser():
     def parseValidationFlags(self, jsonSource, validFlags, fixFlags):
             # print("{0:b}".format(flags))
             if validFlags & 0b00001000:
-                jsonSource['ValidMag'] = 1
+                jsonSource['validmag'] = 1
             else:
-                jsonSource['ValidMag'] = 0
+                jsonSource['validmag'] = 0
 
             if validFlags & 0b00000100:
-                jsonSource['FullyResolved'] = 1
+                jsonSource['fullyresolved'] = 1
             else:
-                jsonSource['FullyResolved'] = 0
+                jsonSource['fullyresolved'] = 0
 
             if validFlags & 0b00000010:
-                jsonSource['TimeResolved'] = 1
+                jsonSource['timeresolved'] = 1
             else:
-                jsonSource['TimeResolved'] = 0
+                jsonSource['timeresolved'] = 0
 
             if validFlags & 0b00000001:
-                jsonSource['DateResolved'] = 1
+                jsonSource['dateresolved'] = 1
             else:
-                jsonSource['DateResolved'] = 0
+                jsonSource['dateresolved'] = 0
 
             if fixFlags & 0b00100000:
-                jsonSource['HedingOfVehicleValid'] = 1
+                jsonSource['hedingofvehiclevalid'] = 1
             else:
-                jsonSource['HedingOfVehicleValid'] = 0
+                jsonSource['hedingofvehiclevalid'] = 0
 
             if fixFlags & 0b00010000:
-                jsonSource['PSMState'] = 1
+                jsonSource['psmstate'] = 1
             else:
-                jsonSource['PSMState'] = 0
+                jsonSource['psmstate'] = 0
 
             if fixFlags & 0b00000010:
-                jsonSource['DiffSol'] = 1
+                jsonSource['diffol'] = 1
             else:
-                jsonSource['DiffSol'] = 0
+                jsonSource['diffsol'] = 0
 
             if fixFlags & 0b00000001:
-                jsonSource['GNSSFixOk'] = 1
+                jsonSource['gnssfixok'] = 1
             else:
-                jsonSource['GNSSFixOk'] = 0
+                jsonSource['gnssfixok'] = 0
 
     def toCsv(self, data):
         """Converts an array of dictionaries into CSV"""
