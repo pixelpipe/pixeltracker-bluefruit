@@ -34,6 +34,7 @@ Orange Example:
 """
 import struct
 import binascii
+from math import sin, cos, sqrt, atan2, radians
 
 _UBX_FORMAT = {
     (0x01, 0x07) : "<LHBBBBBBLlBBBBllllLLlllllLLHBBBBBBlhHHBBHfffffff"
@@ -155,7 +156,7 @@ class UbxParser():
                         json["rsvd3"] = X[31]
                         json["rsvd4"] = X[32]
                         json["rsvd5"] = X[33]
-                        json["headingofveficle"] = X[34] / 100000
+                        json["headingofvehicle"] = X[34] / 100000
                         json["magneticdeclination"] = X[35] / 100
                         json["magneticdeclinationacc"] = X[36] / 100
                         json["checksum"] = X[37]
@@ -193,6 +194,11 @@ class UbxParser():
                 gotUbx = False
         stream.close()
         return data
+
+    def direction(self, heading):
+        dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+        ix = round(heading / (360. / len(dirs)))
+        return dirs[ix % len(dirs)]
 
     def parseValidationFlags(self, jsonSource, validFlags, fixFlags):
             # print("{0:b}".format(flags))
@@ -256,6 +262,23 @@ class UbxParser():
                 str = str[:-1]
                 str += _NEWLINE
         return str
+
+    def distance(self, loc1, loc2):
+        R = 6373.0
+        lat1 = loc1[0]
+        lon1 = loc1[1]
+        lat2 = loc2[0]
+        lon2 = loc2[1]
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return R * c
+
+    """
+    def longDistance(self, loc1, loc2):
+        return geopy.distance.distance(loc1, loc2)
+    """
 
 if __name__ == "__main__":
     import sys
